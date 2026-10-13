@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { app, authReady } from "./auth.js";
 
 const db = getFirestore(app);
@@ -169,11 +169,55 @@ async function renderDetail(box) {
       <div class="body prose">${local.detail.map(text => `<p>${text}</p>`).join("")}</div>
       <p class="stock">${Number(product.stock || 0) === 0 ? "품절" : `재고 ${Number(product.stock)}개`}</p>
       <button class="btn" id="add-to-cart">장바구니에 담기</button>
+      <button class="btn" id="buy-now" type="button">바로 주문</button>
+      <p id="buy-now-status" aria-live="polite"></p>
     </div>`;
 
   document.querySelector("#add-to-cart").addEventListener("click", () => {
     Cart.add(product.id);
     setTimeout(() => { location.href = "cart.html"; }, 250);
+  });
+
+  const buyButton = document.querySelector("#buy-now");
+  const buyStatus = document.querySelector("#buy-now-status");
+  buyButton.addEventListener("click", async () => {
+    buyButton.disabled = true;
+    buyStatus.textContent = "";
+
+    try {
+      const user = await authReady;
+      if (!user) {
+        buyStatus.textContent = "로그인이 필요합니다";
+        return;
+      }
+
+      const productRef = doc(db, "products", product.id);
+      const orderRef = doc(collection(db, "orders"));
+      await runTransaction(db, async transaction => {
+        const latest = await transaction.get(productRef);
+        if (!latest.exists() || Number(latest.data().stock || 0) < 1) {
+          const error = new Error("재고가 없습니다");
+          error.code = "out-of-stock";
+          throw error;
+        }
+
+        const data = latest.data();
+        const price = Number(data.price);
+        transaction.update(productRef, { stock: Number(data.stock) - 1 });
+        transaction.set(orderRef, {
+          userId: user.uid,
+          items: [{ productId: product.id, name: data.name, price, quantity: 1 }],
+          totalPrice: price,
+          status: "paid",
+          createdAt: serverTimestamp()
+        });
+      });
+      buyStatus.textContent = "주문했습니다";
+    } catch (error) {
+      buyStatus.textContent = error.code === "out-of-stock" ? "재고가 없습니다" : String(error);
+    } finally {
+      buyButton.disabled = false;
+    }
   });
 }
 
