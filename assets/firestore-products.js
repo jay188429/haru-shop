@@ -115,7 +115,7 @@ async function loadListPage(box) {
       collection(db, "products"),
       where("isVisible", "==", true),
       orderBy("price", "asc"),
-      limit(2)
+      limit(3)
     ];
     const pageQuery = lastDoc
       ? query(...clauses, startAfter(lastDoc))
@@ -131,7 +131,7 @@ async function loadListPage(box) {
       lastDoc = snapshot.docs[snapshot.docs.length - 1];
     }
 
-    setMoreButton(box, snapshot.size === 2);
+    setMoreButton(box, snapshot.size === 3);
   } catch (error) {
     console.error(error);
     setReadCount(box, listReadCount);
