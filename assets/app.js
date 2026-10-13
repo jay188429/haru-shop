@@ -82,6 +82,7 @@ function paintChrome() {
 function paintList() {
   const box = document.querySelector("#product-list");
   if (!box) return;
+  if (box.dataset.source === "firestore") return;
 
   document.querySelector("#hero-title").textContent = SHOP.name;
   document.querySelector("#hero-tagline").textContent = SHOP.tagline;
@@ -245,3 +246,7 @@ const authScript = document.createElement("script");
 authScript.type = "module";
 authScript.src = "assets/auth.js";
 document.head.appendChild(authScript);
+
+if (document.querySelector('[data-source="firestore"]')) {
+  import("./assets/firestore-products.js");
+}

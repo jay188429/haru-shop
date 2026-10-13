@@ -19,9 +19,12 @@ nav.site{margin-left:auto;display:flex;gap:18px;font-size:14px}
 nav.site a{color:var(--sub);text-decoration:none}
 nav.site a:hover{color:var(--ink)}
 .auth-area{display:inline-flex;align-items:center;gap:10px;margin-left:2px}
+.auth-avatar{width:24px;height:24px;border-radius:50%;object-fit:cover;flex:none}
 .auth-email{max-width:180px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .auth-logout{padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--sub);font:inherit;cursor:pointer}
 .auth-logout:hover{color:var(--ink);border-color:var(--ink)}
+.stock,.read-count,.product-upload-status{color:var(--sub);font-size:13px}
+.product-upload{margin:0 0 20px}
 .cart-count{background:var(--accent);color:var(--accent-ink);border-radius:999px;
   padding:1px 8px;font-size:12px;margin-left:4px}
 

@@ -26,6 +26,14 @@ function paintAuthArea(user) {
     area.replaceChildren();
 
     if (user) {
+      if (user.photoURL) {
+        const avatar = document.createElement("img");
+        avatar.className = "auth-avatar";
+        avatar.src = user.photoURL;
+        avatar.alt = "프로필 사진";
+        area.append(avatar);
+      }
+
       const email = document.createElement("span");
       email.className = "auth-email";
       email.textContent = user.email;
@@ -61,4 +69,4 @@ onAuthStateChanged(auth, user => {
   resolveAuthReady(user);
 });
 
-export { auth, authReady };
+export { app, auth, authReady };
