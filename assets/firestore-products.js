@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, getFirestore, query, serverTimestamp, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { app, authReady } from "./auth.js";
 
 const db = getFirestore(app);
@@ -69,13 +69,16 @@ function addUploadControl(box) {
 async function renderList(box) {
   box.innerHTML = "<p>상품을 불러오는 중입니다.</p>";
   try {
-    const snapshot = await getDocs(query(collection(db, "products"), where("isVisible", "==", true)));
+    const snapshot = await getDocs(query(
+      collection(db, "products"),
+      where("isVisible", "==", true),
+      orderBy("price", "asc"),
+      limit(3)
+    ));
     setReadCount(box, snapshot.size);
 
     const localProducts = new Map(PRODUCTS.map(product => [product.id, product]));
-    const products = snapshot.docs
-      .map(item => ({ id: item.id, ...item.data() }))
-      .sort((a, b) => (localProducts.get(a.id)?.id || "").localeCompare(localProducts.get(b.id)?.id || ""));
+    const products = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
 
     if (products.length === 0) {
       box.innerHTML = '<p class="empty">표시할 상품이 없습니다.</p>';
@@ -95,8 +98,9 @@ async function renderList(box) {
         </a>`;
     }).join("");
   } catch (error) {
+    console.error(error);
     setReadCount(box, 0);
-    box.innerHTML = `<p class="empty">${String(error)}</p>`;
+    box.innerHTML = '<p class="empty">목록을 불러오지 못했습니다</p>';
   }
 }
 
