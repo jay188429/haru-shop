@@ -72,7 +72,7 @@ async function renderList(box) {
     const snapshot = await getDocs(query(
       collection(db, "products"),
       where("isVisible", "==", true),
-      orderBy("price", "asc"),
+      orderBy("price", "desc"),
       limit(3)
     ));
     setReadCount(box, snapshot.size);
