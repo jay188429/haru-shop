@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { app, authReady } from "./auth.js";
 
 const db = getFirestore(app);
@@ -66,41 +66,79 @@ function addUploadControl(box) {
   });
 }
 
-async function renderList(box) {
-  box.innerHTML = "<p>상품을 불러오는 중입니다.</p>";
+let lastDoc = null;
+let listReadCount = 0;
+let listLoading = false;
+
+function setMoreButton(box, visible) {
+  let button = box.parentElement.querySelector("#load-more-products");
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "load-more-products";
+    button.className = "btn";
+    button.type = "button";
+    button.textContent = "더 보기";
+    box.parentElement.append(button);
+    button.addEventListener("click", () => loadListPage(box));
+  }
+  button.hidden = !visible;
+  return button;
+}
+
+function appendProducts(box, snapshot) {
+  const localProducts = new Map(PRODUCTS.map(product => [product.id, product]));
+  const products = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+  const cards = products.map(product => {
+    const local = localProducts.get(product.id);
+    const stock = Number(product.stock || 0);
+    return `
+      <a class="card" href="product.html?id=${product.id}">
+        <div class="thumb">${local?.emoji || ""}</div>
+        <h3>${product.name}</h3>
+        <p class="sum">${product.summary}</p>
+        <div class="price">${won(product.price)}</div>
+        <p class="stock">${stock === 0 ? "품절" : `재고 ${stock}개`}</p>
+      </a>`;
+  }).join("");
+  box.insertAdjacentHTML("beforeend", cards);
+  return products.length;
+}
+
+async function loadListPage(box) {
+  if (listLoading) return;
+  listLoading = true;
+  setMoreButton(box, false);
+  if (!lastDoc) box.innerHTML = "<p>상품을 불러오는 중입니다.</p>";
+
   try {
-    const snapshot = await getDocs(query(
+    const clauses = [
       collection(db, "products"),
       where("isVisible", "==", true),
-      orderBy("price", "desc"),
+      orderBy("price", "asc"),
       limit(3)
-    ));
-    setReadCount(box, snapshot.size);
+    ];
+    const pageQuery = lastDoc
+      ? query(...clauses, startAfter(lastDoc))
+      : query(...clauses);
+    const snapshot = await getDocs(pageQuery);
+    listReadCount += snapshot.size;
+    setReadCount(box, listReadCount);
 
-    const localProducts = new Map(PRODUCTS.map(product => [product.id, product]));
-    const products = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
-
-    if (products.length === 0) {
+    if (!lastDoc && snapshot.size === 0) {
       box.innerHTML = '<p class="empty">표시할 상품이 없습니다.</p>';
-      return;
+    } else if (snapshot.size > 0) {
+      appendProducts(box, snapshot);
+      lastDoc = snapshot.docs[snapshot.docs.length - 1];
     }
 
-    box.innerHTML = products.map(product => {
-      const local = localProducts.get(product.id);
-      const stock = Number(product.stock || 0);
-      return `
-        <a class="card" href="product.html?id=${product.id}">
-          <div class="thumb">${local?.emoji || ""}</div>
-          <h3>${product.name}</h3>
-          <p class="sum">${product.summary}</p>
-          <div class="price">${won(product.price)}</div>
-          <p class="stock">${stock === 0 ? "품절" : `재고 ${stock}개`}</p>
-        </a>`;
-    }).join("");
+    setMoreButton(box, snapshot.size === 3);
   } catch (error) {
     console.error(error);
-    setReadCount(box, 0);
+    setReadCount(box, listReadCount);
     box.innerHTML = '<p class="empty">목록을 불러오지 못했습니다</p>';
+    setMoreButton(box, false);
+  } finally {
+    listLoading = false;
   }
 }
 
@@ -144,7 +182,7 @@ const detailBox = document.querySelector("#product-detail");
 
 if (listBox) {
   addUploadControl(listBox);
-  renderList(listBox);
+  loadListPage(listBox);
 }
 
 if (detailBox) {
