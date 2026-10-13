@@ -247,6 +247,3 @@ authScript.type = "module";
 authScript.src = "assets/auth.js";
 document.head.appendChild(authScript);
 
-if (document.querySelector('[data-source="firestore"]')) {
-  import("./assets/firestore-products.js");
-}
