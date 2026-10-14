@@ -36,6 +36,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
 <main id="mypage-content" hidden><div class="wrap">
   <h2>마이페이지</h2>
+  <p id="order-status-notice" aria-live="polite" hidden>주문 상태가 바뀌었습니다</p>
   <p>로그인한 이메일</p>
   <p id="user-email"></p>
   <button class="btn" id="mypage-logout" type="button">로그아웃</button>
@@ -58,11 +59,14 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
   const content = document.querySelector("#mypage-content");
   const email = document.querySelector("#user-email");
+  const orderStatusNotice = document.querySelector("#order-status-notice");
   const orderList = document.querySelector("#order-list");
   const ordersEmpty = document.querySelector("#orders-empty");
   const listenerNotice = document.querySelector("#orders-listener-notice");
   const ordersRecheck = document.querySelector("#orders-recheck");
   let stopOrders = null;
+  let noticeTimer = null;
+  const knownStatuses = new Map();
   const verificationNotice = document.createElement("p");
   verificationNotice.textContent = "이메일 인증이 필요합니다.";
   const resendVerification = document.createElement("button");
@@ -132,6 +136,14 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     });
   };
 
+  const showOrderStatusNotice = () => {
+    orderStatusNotice.hidden = false;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => {
+      orderStatusNotice.hidden = true;
+    }, 3000);
+  };
+
   const readOrdersOnce = async uid => {
     const ordersQuery = query(
       collection(db, "orders"),
@@ -159,7 +171,21 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     );
     stopOrders = onSnapshot(ordersQuery, snapshot => {
       console.log("[주문 알림]", snapshot.docs.length);
+      let statusChanged = false;
+      snapshot.docChanges().forEach(change => {
+        if (change.type === "removed") {
+          knownStatuses.delete(change.doc.id);
+          return;
+        }
+        const currentStatus = change.doc.data().status;
+        const previousStatus = knownStatuses.get(change.doc.id);
+        if (change.type === "modified" && previousStatus !== currentStatus) {
+          statusChanged = true;
+        }
+        knownStatuses.set(change.doc.id, currentStatus);
+      });
       renderOrders(snapshot);
+      if (statusChanged) showOrderStatusNotice();
 
       const orders = snapshot.docs.map(order => order.data());
       const allFinished = orders.length > 0 && orders.every(order => ["delivered", "canceled"].includes(order.status));
