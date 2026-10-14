@@ -85,6 +85,20 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     return timestamp.toDate().toLocaleString("ko-KR");
   };
 
+  const statusLabels = {
+    paid: "결제 완료",
+    preparing: "상품 준비 중",
+    shipped: "배송 중",
+    delivered: "배송 완료",
+    canceled: "주문 취소"
+  };
+  const statusSteps = [
+    ["paid", "결제 완료"],
+    ["preparing", "상품 준비 중"],
+    ["shipped", "배송 중"],
+    ["delivered", "배송 완료"]
+  ];
+
   const renderOrders = snapshot => {
     const orders = snapshot.docs
       .map(order => ({ id: order.id, ...order.data() }))
@@ -95,7 +109,25 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     orders.forEach(order => {
       const itemNames = (order.items || []).map(item => item.name).join(", ");
       const item = document.createElement("li");
-      item.textContent = `${formatOrderDate(order.createdAt)} · ${itemNames} · ${order.totalPrice}원 · ${order.status}`;
+      const summary = document.createElement("p");
+      summary.textContent = `${formatOrderDate(order.createdAt)} · ${itemNames} · ${order.totalPrice}원 · ${statusLabels[order.status] || "확인 중"}`;
+      item.append(summary);
+
+      if (order.status !== "canceled") {
+        const steps = document.createElement("ol");
+        steps.className = "order-steps";
+        statusSteps.forEach(([value, label]) => {
+          const step = document.createElement("li");
+          step.textContent = label;
+          if (order.status === value) {
+            step.className = "current";
+            step.setAttribute("aria-current", "step");
+            step.style.fontWeight = "700";
+          }
+          steps.append(step);
+        });
+        item.append(steps);
+      }
       orderList.append(item);
     });
   };
