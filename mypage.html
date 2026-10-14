@@ -39,15 +39,25 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <p>로그인한 이메일</p>
   <p id="user-email"></p>
   <button class="btn" id="mypage-logout" type="button">로그아웃</button>
+  <section id="my-orders">
+    <h3>내 주문</h3>
+    <ul id="order-list"></ul>
+    <p id="orders-empty"></p>
+  </section>
 </div></main>
 <footer class="site"><div class="wrap"></div></footer>
 
 <script type="module">
   import { sendEmailVerification, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-  import { auth, authReady } from "./assets/auth.js";
+  import { collection, getFirestore, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import { app, auth, authReady } from "./assets/auth.js";
+
+  const db = getFirestore(app);
 
   const content = document.querySelector("#mypage-content");
   const email = document.querySelector("#user-email");
+  const orderList = document.querySelector("#order-list");
+  const ordersEmpty = document.querySelector("#orders-empty");
   const verificationNotice = document.createElement("p");
   verificationNotice.textContent = "이메일 인증이 필요합니다.";
   const resendVerification = document.createElement("button");
@@ -65,6 +75,26 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     resendVerification.hidden = !unverified;
   };
 
+  const formatOrderDate = timestamp => {
+    if (!timestamp || typeof timestamp.toDate !== "function") return "날짜 없음";
+    return timestamp.toDate().toLocaleString("ko-KR");
+  };
+
+  const renderOrders = snapshot => {
+    const orders = snapshot.docs
+      .map(order => ({ id: order.id, ...order.data() }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+
+    orderList.replaceChildren();
+    ordersEmpty.textContent = orders.length ? "" : "주문 내역이 없습니다.";
+    orders.forEach(order => {
+      const itemNames = (order.items || []).map(item => item.name).join(", ");
+      const item = document.createElement("li");
+      item.textContent = `${formatOrderDate(order.createdAt)} · ${itemNames} · ${order.totalPrice}원 · ${order.status}`;
+      orderList.append(item);
+    });
+  };
+
   authReady.then(async user => {
     if (!user) {
       location.href = "login.html?next=mypage.html";
@@ -76,6 +106,15 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     email.textContent = user.email;
     paintVerificationState(user);
     content.hidden = false;
+
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("userId", "==", user.uid)
+    );
+    onSnapshot(ordersQuery, snapshot => {
+      console.log("[주문 알림]", snapshot.docs.length);
+      renderOrders(snapshot);
+    });
   });
 
   resendVerification.addEventListener("click", async () => {
