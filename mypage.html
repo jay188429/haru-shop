@@ -52,7 +52,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
 <script type="module">
   import { sendEmailVerification, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-  import { collection, getDocs, getFirestore, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import { collection, doc, getDocs, getFirestore, onSnapshot, query, updateDoc, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
   import { app, auth, authReady } from "./assets/auth.js";
 
   const db = getFirestore(app);
@@ -67,6 +67,8 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   let stopOrders = null;
   let noticeTimer = null;
   const knownStatuses = new Map();
+  const cancelErrors = new Map();
+  let latestOrdersSnapshot = null;
   const verificationNotice = document.createElement("p");
   verificationNotice.textContent = "이메일 인증이 필요합니다.";
   const resendVerification = document.createElement("button");
@@ -104,6 +106,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   ];
 
   const renderOrders = snapshot => {
+    latestOrdersSnapshot = snapshot;
     const orders = snapshot.docs
       .map(order => ({ id: order.id, ...order.data() }))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
@@ -131,6 +134,30 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           steps.append(step);
         });
         item.append(steps);
+      }
+
+      if (order.status === "paid") {
+        const cancelButton = document.createElement("button");
+        cancelButton.className = "btn";
+        cancelButton.type = "button";
+        cancelButton.textContent = "주문 취소";
+        cancelButton.addEventListener("click", async () => {
+          cancelButton.disabled = true;
+          cancelButton.textContent = "저장 중";
+          cancelErrors.delete(order.id);
+          try {
+            await updateDoc(doc(db, "orders", order.id), { status: "canceled" });
+          } catch (error) {
+            cancelErrors.set(order.id, "주문이 취소되지 않았어요. 이 주문은 지금 취소 전 상태 그대로예요. 주문 취소를 한 번 더 눌러 주세요.");
+            if (latestOrdersSnapshot) renderOrders(latestOrdersSnapshot);
+          }
+        });
+        item.append(cancelButton);
+        if (cancelErrors.has(order.id)) {
+          const cancelError = document.createElement("p");
+          cancelError.textContent = cancelErrors.get(order.id);
+          item.append(cancelError);
+        }
       }
       orderList.append(item);
     });
