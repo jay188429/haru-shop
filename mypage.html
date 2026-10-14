@@ -44,13 +44,14 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <ul id="order-list"></ul>
     <p id="orders-empty"></p>
     <p id="orders-listener-notice" hidden></p>
+    <button class="btn" id="orders-recheck" type="button" hidden>다시 확인</button>
   </section>
 </div></main>
 <footer class="site"><div class="wrap"></div></footer>
 
 <script type="module">
   import { sendEmailVerification, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-  import { collection, getFirestore, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import { collection, getDocs, getFirestore, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
   import { app, auth, authReady } from "./assets/auth.js";
 
   const db = getFirestore(app);
@@ -60,6 +61,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   const orderList = document.querySelector("#order-list");
   const ordersEmpty = document.querySelector("#orders-empty");
   const listenerNotice = document.querySelector("#orders-listener-notice");
+  const ordersRecheck = document.querySelector("#orders-recheck");
   let stopOrders = null;
   const verificationNotice = document.createElement("p");
   verificationNotice.textContent = "이메일 인증이 필요합니다.";
@@ -98,6 +100,15 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     });
   };
 
+  const readOrdersOnce = async uid => {
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("userId", "==", uid)
+    );
+    const snapshot = await getDocs(ordersQuery);
+    renderOrders(snapshot);
+  };
+
   authReady.then(async user => {
     if (!user) {
       location.href = "login.html?next=mypage.html";
@@ -125,7 +136,17 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         stopOrders = null;
         listenerNotice.textContent = "마이페이지를 닫으면 주문 확인을 멈춥니다. 다시 열면 최신 주문 내역을 확인합니다.";
         listenerNotice.hidden = false;
+        ordersRecheck.hidden = false;
         console.log("[그만 듣기] 모든 주문이 종료되었습니다.");
+      }
+    });
+
+    ordersRecheck.addEventListener("click", async () => {
+      ordersRecheck.disabled = true;
+      try {
+        await readOrdersOnce(user.uid);
+      } finally {
+        ordersRecheck.disabled = false;
       }
     });
   });
