@@ -1,7 +1,9 @@
 import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { getDownloadURL, getStorage, ref } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
 import { app, authReady } from "./auth.js";
 
 const db = getFirestore(app);
+const storage = getStorage(app);
 const stocks = {
   p2: { stock: 30, isVisible: true },
   p3: { stock: 8, isVisible: true },
@@ -93,7 +95,7 @@ function appendProducts(box, snapshot) {
     const stock = Number(product.stock || 0);
     return `
       <a class="card" href="product.html?id=${product.id}">
-        <div class="thumb">${local?.emoji || ""}</div>
+        <div class="thumb" data-product-id="${product.id}">${local?.emoji || ""}</div>
         <h3>${product.name}</h3>
         <p class="sum">${product.summary}</p>
         <div class="price">${won(product.price)}</div>
@@ -101,6 +103,15 @@ function appendProducts(box, snapshot) {
       </a>`;
   }).join("");
   box.insertAdjacentHTML("beforeend", cards);
+  products.filter(product => product.imagePath).forEach(product => {
+    getDownloadURL(ref(storage, product.imagePath))
+      .then(url => {
+        const imageBox = box.querySelector(`[data-product-id="${product.id}"]`);
+        if (!imageBox) return;
+        imageBox.innerHTML = `<img class="product-image" src="${url}" alt="${product.name}">`;
+      })
+      .catch(error => console.error(error));
+  });
   return products.length;
 }
 
