@@ -172,7 +172,7 @@ async function renderDetail(box) {
 
   document.title = product.name + " — " + SHOP.name;
   box.innerHTML = `
-    <div class="thumb">${local.emoji}</div>
+    <div class="thumb" data-detail-product-id="${product.id}">${local.emoji}</div>
     <div>
       <h1>${product.name}</h1>
       <div class="price">${won(product.price)}</div>
@@ -183,6 +183,16 @@ async function renderDetail(box) {
       <button class="btn" id="buy-now" type="button">바로 주문</button>
       <p id="buy-now-status" aria-live="polite"></p>
     </div>`;
+
+  if (product.imagePath) {
+    getDownloadURL(ref(storage, product.imagePath))
+      .then(url => {
+        const imageBox = box.querySelector(`[data-detail-product-id="${product.id}"]`);
+        if (!imageBox) return;
+        imageBox.innerHTML = `<img class="product-image" src="${url}" alt="${product.name}">`;
+      })
+      .catch(error => console.error(error));
+  }
 
   document.querySelector("#add-to-cart").addEventListener("click", () => {
     Cart.add(product.id);
