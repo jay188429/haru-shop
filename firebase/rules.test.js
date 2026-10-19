@@ -39,7 +39,16 @@ after(async () => {
 });
 
 // 6. 테스트
-test("로그인 안 한 사람이 상품을 읽는다", async () => {
+test("손님 누구나 상품 p1 을 볼 수 있다", async () => {
   const guest = testEnv.unauthenticatedContext();
   await assertSucceeds(getDoc(doc(guest.firestore(), "products/p1")));
+});
+test("손님이 남의 주문을 읽는다", async () => {
+  const 사람 = testEnv.authenticatedContext("cust01");
+  await assertFails(getDoc(doc(사람.firestore(), "orders/o1")));
+});
+
+test("직원이 남의 주문을 읽는다", async () => {
+  const staff = testEnv.authenticatedContext("staff01", { role: "staff" });
+  await assertSucceeds(getDoc(doc(staff.firestore(), "orders/o1")));
 });
