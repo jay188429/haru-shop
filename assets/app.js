@@ -198,16 +198,24 @@ function paintCheckout() {
     e.preventDefault();
 
     // ▼ 여기에 「결제를 마쳤다」를 알리는 코드가 들어갑니다 (뒤 수업에서)
-    const orderId = "order-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8); // 주문 번호를 새로 만든다 (방법은 한 예)
+    const items = Cart.read();
+    const paymentId = "HARU-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    const namedItems = items
+      .map(i => ({ item: i, product: findProduct(i.id) }))
+      .filter(x => x.product);
+    const firstProduct = namedItems[0]?.product;
+    const orderName = firstProduct
+      ? firstProduct.name + (namedItems.length > 1 ? ` 외 ${namedItems.length - 1}건` : "")
+      : "하루상점 주문";
     window.dataLayer = window.dataLayer || [];            // 통로가 있으면 그대로 쓰고, 없으면 만든다
     dataLayer.push({ ecommerce: null });                  // 앞 push의 전자상거래 값을 비운다
     dataLayer.push({
       event: "purchase",                                  // 계획서 이름 글자 그대로
       ecommerce: {
-        transaction_id: orderId,                          // 주문 번호 · ecommerce 안 · 비어 있지 않음
+        transaction_id: paymentId,                         // 주문 번호 · ecommerce 안 · 비어 있지 않음
         currency: "KRW",                                  // 통화는 글자 KRW
         value: Cart.total(),                              // 상품 합계 숫자 · 배송비 없음
-        items: Cart.read()                                // 장바구니 줄 목록을 읽는다 (아직 안 비웠다)
+        items: items                                       // 장바구니 줄 목록을 읽는다 (아직 안 비웠다)
           .map(i => ({ p: findProduct(i.id), qty: i.qty })) // 줄마다 상품 정보를 찾아 붙인다
           .filter(x => x.p)                               // 못 찾은 상품은 뺀다
           .map(x => ({                                    // 상품마다 상자 하나
@@ -219,8 +227,28 @@ function paintCheckout() {
       }
     });
 
-    Cart.clear();
-    location.href = "done.html";
+    const resultBox = document.querySelector("#payment-result");
+    const showResult = value => {
+      const raw = typeof value === "string" ? value : JSON.stringify(value);
+      resultBox.textContent = `paymentId: ${paymentId}\n${raw}`;
+    };
+
+    (async () => {
+      try {
+        const result = await PortOne.requestPayment({
+          storeId: "store-2d0f7c37-89c7-4b2d-beed-01d8a7ffe28a",
+          channelKey: "channel-key-697a61ba-e87e-4386-9186-1e403561a6f8",
+          paymentId,
+          orderName,
+          totalAmount: Cart.total(),
+          currency: "KRW",
+          payMethod: "CARD"
+        });
+        showResult(result);
+      } catch (error) {
+        showResult(String(error));
+      }
+    })();
   });
 }
 
