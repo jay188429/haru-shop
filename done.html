@@ -40,6 +40,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <main><div class="wrap">
   <h2>주문이 접수되었습니다</h2>
   <div class="prose">
+    <p id="order-result"></p>
     <p>연습용 주문이라 실제로 배송되지는 않습니다.</p>
     <p>영업일 기준 이틀 안에 보내드리는 것이 원래 약속입니다.</p>
   </div>
@@ -48,5 +49,77 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <footer class="site"><div class="wrap"></div></footer>
 <script src="assets/shop.js"></script>
 <script src="assets/app.js"></script>
+<script type="module">
+  import { doc, getFirestore, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import { app, authReady } from "./assets/auth.js";
+
+  const result = document.querySelector("#order-result");
+  const params = new URLSearchParams(location.search);
+  const paymentId = params.get("paymentId");
+  const code = params.get("code");
+  const message = params.get("message");
+
+  const show = text => { result.textContent = text; };
+
+  if (code) {
+    show(message || code);
+    const notice = document.createElement("p");
+    notice.textContent = "장바구니는 그대로입니다";
+    result.after(notice);
+  } else if (paymentId) {
+    (async () => {
+      const user = await authReady;
+      if (!user) {
+        show("로그인한 뒤 주문을 확인해 주세요.");
+        return;
+      }
+
+      const items = Cart.read()
+        .map(item => {
+          const product = findProduct(item.id);
+          return product
+            ? { productId: product.id, name: product.name, price: product.price, quantity: item.qty }
+            : null;
+        })
+        .filter(Boolean);
+
+      try {
+        await setDoc(doc(getFirestore(app), "orders", paymentId), {
+          userId: user.uid,
+          items,
+          totalPrice: Cart.total(),
+          status: "paid",
+          createdAt: serverTimestamp(),
+          paymentId
+        });
+
+        window.dataLayer = window.dataLayer || [];
+        dataLayer.push({ ecommerce: null });
+        dataLayer.push({
+          event: "purchase",
+          ecommerce: {
+            transaction_id: paymentId,
+            currency: "KRW",
+            value: items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+            items: items.map(item => ({
+              item_id: item.productId,
+              item_name: item.name,
+              price: item.price,
+              quantity: item.quantity
+            }))
+          }
+        });
+
+        Cart.clear();
+        document.querySelectorAll(".cart-count").forEach(element => { element.textContent = "0"; });
+        show(`${paymentId}\n주문이 접수되었습니다`);
+      } catch (error) {
+        show(String(error));
+      }
+    })();
+  } else {
+    result.textContent = "";
+  }
+</script>
 </body>
 </html>

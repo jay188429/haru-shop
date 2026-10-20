@@ -207,30 +207,18 @@ function paintCheckout() {
     const orderName = firstProduct
       ? firstProduct.name + (namedItems.length > 1 ? ` 외 ${namedItems.length - 1}건` : "")
       : "하루상점 주문";
-    window.dataLayer = window.dataLayer || [];            // 통로가 있으면 그대로 쓰고, 없으면 만든다
-    dataLayer.push({ ecommerce: null });                  // 앞 push의 전자상거래 값을 비운다
-    dataLayer.push({
-      event: "purchase",                                  // 계획서 이름 글자 그대로
-      ecommerce: {
-        transaction_id: paymentId,                         // 주문 번호 · ecommerce 안 · 비어 있지 않음
-        currency: "KRW",                                  // 통화는 글자 KRW
-        value: Cart.total(),                              // 상품 합계 숫자 · 배송비 없음
-        items: items                                       // 장바구니 줄 목록을 읽는다 (아직 안 비웠다)
-          .map(i => ({ p: findProduct(i.id), qty: i.qty })) // 줄마다 상품 정보를 찾아 붙인다
-          .filter(x => x.p)                               // 못 찾은 상품은 뺀다
-          .map(x => ({                                    // 상품마다 상자 하나
-            item_id: x.p.id,                              // 상품 번호
-            item_name: x.p.name,                          // 상품 이름
-            price: x.p.price,                             // 가격 숫자
-            quantity: x.qty                                // 수량 숫자
-          }))
-      }
-    });
+    const doneUrl = new URL("done.html", location.href).href;
+    const customData = {
+      items: items.map(item => ({ id: item.id, qty: item.qty }))
+    };
 
-    const resultBox = document.querySelector("#payment-result");
-    const showResult = value => {
-      const raw = typeof value === "string" ? value : JSON.stringify(value);
-      resultBox.textContent = `paymentId: ${paymentId}\n${raw}`;
+    const goToDone = result => {
+      const params = new URLSearchParams();
+      const resultPaymentId = result?.paymentId || paymentId;
+      if (resultPaymentId) params.set("paymentId", resultPaymentId);
+      if (result?.code) params.set("code", result.code);
+      if (result?.message) params.set("message", result.message);
+      location.href = `${doneUrl}?${params}`;
     };
 
     (async () => {
@@ -242,11 +230,17 @@ function paintCheckout() {
           orderName,
           totalAmount: Cart.total(),
           currency: "KRW",
-          payMethod: "CARD"
+          payMethod: "CARD",
+          customData,
+          redirectUrl: doneUrl
         });
-        showResult(result);
+        goToDone(result);
       } catch (error) {
-        showResult(String(error));
+        goToDone({
+          paymentId,
+          code: error?.code || "PAYMENT_FAILED",
+          message: error?.message || String(error)
+        });
       }
     })();
   });
