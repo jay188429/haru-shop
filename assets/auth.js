@@ -1,5 +1,6 @@
 import { getApp, getApps, initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+import { getMessaging, onMessage } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyA0kTH70Gm6SXmk2i32D-wFpr97mXlufco",
@@ -13,6 +14,14 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 auth.languageCode = "ko";
+
+const messaging = getMessaging(app);
+onMessage(messaging, payload => {
+  if (Notification.permission !== "granted") return;
+  const title = payload.notification?.title || "하루상점 알림";
+  const options = {body: payload.notification?.body || "새 알림이 도착했습니다."};
+  new Notification(title, options);
+});
 
 function paintAuthArea(user) {
   document.querySelectorAll("nav.site").forEach(nav => {

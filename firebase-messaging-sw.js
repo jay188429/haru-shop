@@ -10,4 +10,19 @@ firebase.initializeApp({
   appId: "1:675983958231:web:398bf3df20fb83967c9092",
 });
 
-firebase.messaging();
+const messaging = firebase.messaging();
+
+messaging.onBackgroundMessage(payload => {
+  const title = payload.notification?.title || "하루상점 알림";
+  const options = {
+    body: payload.notification?.body || "새 알림이 도착했습니다.",
+    data: {link: payload.fcmOptions?.link || "https://haru-shop-jay.vercel.app"},
+  };
+  self.registration.showNotification(title, options);
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const link = event.notification.data?.link || "https://haru-shop-jay.vercel.app";
+  event.waitUntil(clients.openWindow(link));
+});
