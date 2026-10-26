@@ -201,6 +201,45 @@ async function renderDetail(box) {
 
   const buyButton = document.querySelector("#buy-now");
   const buyStatus = document.querySelector("#buy-now-status");
+
+  function showNotificationCard() {
+    const card = document.createElement("section");
+    card.className = "notification-opt-in";
+    buyStatus.after(card);
+
+    if (Notification.permission === "granted") {
+      card.textContent = "알림을 받고 있어요";
+      return;
+    }
+    if (Notification.permission === "denied") {
+      card.textContent = "브라우저 주소창 왼쪽 아이콘 → 알림에서 켤 수 있어요";
+      return;
+    }
+
+    const title = document.createElement("h3");
+    title.textContent = "배송이 출발하면 알려 드릴까요?";
+    const allowButton = document.createElement("button");
+    allowButton.className = "btn";
+    allowButton.type = "button";
+    allowButton.textContent = "알림 받기";
+    const laterButton = document.createElement("button");
+    laterButton.className = "btn ghost";
+    laterButton.type = "button";
+    laterButton.textContent = "나중에";
+    card.append(title, allowButton, laterButton);
+
+    allowButton.addEventListener("click", async () => {
+      const permission = await Notification.requestPermission();
+      console.log("알림 권한", permission);
+      if (permission === "granted") {
+        card.textContent = "알림을 받고 있어요";
+      } else if (permission === "denied") {
+        card.textContent = "브라우저 주소창 왼쪽 아이콘 → 알림에서 켤 수 있어요";
+      }
+    });
+    laterButton.addEventListener("click", () => { card.hidden = true; });
+  }
+
   buyButton.addEventListener("click", async () => {
     buyButton.disabled = true;
     buyStatus.textContent = "";
@@ -234,6 +273,7 @@ async function renderDetail(box) {
         });
       });
       buyStatus.textContent = "주문했습니다";
+      showNotificationCard();
     } catch (error) {
       buyStatus.textContent = error.code === "out-of-stock" ? "재고가 없습니다" : String(error);
     } finally {

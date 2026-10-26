@@ -3,9 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>주문 완료 — 하루상점</title>
+<title>주문 완료 — 하루 상점</title>
 <meta name="description" content="주문이 접수되었습니다">
 <link rel="stylesheet" href="assets/style.css">
+<style>
+  .notification-opt-in { margin-top: 22px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .notification-opt-in h3 { margin: 0 0 8px; font-size: 16px; }
+  .notification-opt-in .btn + .btn { margin-left: 8px; }
+</style>
 
 <!-- 동의 기본값 · 태그 관리자보다 먼저 -->
 <script src="assets/consent.js"></script>
@@ -28,7 +33,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <!-- 태그 관리자 코드가 들어갈 자리 (몸통 맨 위) -->
 
 <header class="site"><div class="wrap">
-  <a class="brand" href="index.html">하루상점</a>
+  <a class="brand" href="index.html">하루 상점</a>
   <nav class="site">
     <a href="index.html">상품</a>
     <a href="about.html">가게 소개</a>
@@ -60,6 +65,44 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   const message = params.get("message");
 
   const show = text => { result.textContent = text; };
+
+  function showNotificationCard() {
+    const card = document.createElement("section");
+    card.className = "notification-opt-in";
+    result.after(card);
+
+    if (Notification.permission === "granted") {
+      card.textContent = "알림을 받고 있어요";
+      return;
+    }
+    if (Notification.permission === "denied") {
+      card.textContent = "브라우저 주소창 왼쪽 아이콘 → 알림에서 켤 수 있어요";
+      return;
+    }
+
+    const title = document.createElement("h3");
+    title.textContent = "배송이 출발하면 알려 드릴까요?";
+    const allowButton = document.createElement("button");
+    allowButton.className = "btn";
+    allowButton.type = "button";
+    allowButton.textContent = "알림 받기";
+    const laterButton = document.createElement("button");
+    laterButton.className = "btn ghost";
+    laterButton.type = "button";
+    laterButton.textContent = "나중에";
+    card.append(title, allowButton, laterButton);
+
+    allowButton.addEventListener("click", async () => {
+      const permission = await Notification.requestPermission();
+      console.log("알림 권한", permission);
+      if (permission === "granted") {
+        card.textContent = "알림을 받고 있어요";
+      } else if (permission === "denied") {
+        card.textContent = "브라우저 주소창 왼쪽 아이콘 → 알림에서 켤 수 있어요";
+      }
+    });
+    laterButton.addEventListener("click", () => { card.hidden = true; });
+  }
 
   if (code) {
     show(message || code);
@@ -113,6 +156,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         Cart.clear();
         document.querySelectorAll(".cart-count").forEach(element => { element.textContent = "0"; });
         show(`${paymentId}\n주문이 접수되었습니다`);
+        showNotificationCard();
       } catch (error) {
         show(String(error));
       }
