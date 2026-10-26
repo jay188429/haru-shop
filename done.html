@@ -56,8 +56,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <script src="assets/app.js"></script>
 <script type="module">
   import { doc, getFirestore, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging.js";
   import { app, authReady } from "./assets/auth.js";
 
+  const VAPID_KEY = "BPKhn-mp1hqa5X0-dCd2_xPp8H488i6AxeSGm66rb0lR9lLLH4AqRD16LUHFTKx5fBbWEmikGgisaOYhBcThatE";
   const result = document.querySelector("#order-result");
   const params = new URLSearchParams(location.search);
   const paymentId = params.get("paymentId");
@@ -66,13 +68,24 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
   const show = text => { result.textContent = text; };
 
-  function showNotificationCard() {
+  async function savePushToken(user) {
+    if (Notification.permission !== "granted") return;
+    const serviceWorkerRegistration = await navigator.serviceWorker.ready;
+    const token = await getToken(getMessaging(app), {vapidKey: VAPID_KEY, serviceWorkerRegistration});
+    await setDoc(doc(getFirestore(app), "pushTokens", user.uid), {
+      token,
+      updatedAt: serverTimestamp()
+    }, {merge: true});
+  }
+
+  function showNotificationCard(user) {
     const card = document.createElement("section");
     card.className = "notification-opt-in";
     result.after(card);
 
     if (Notification.permission === "granted") {
       card.textContent = "알림을 받고 있어요";
+      savePushToken(user).catch(error => console.error("푸시 토큰 저장 실패", error));
       return;
     }
     if (Notification.permission === "denied") {
@@ -97,6 +110,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       console.log("알림 권한", permission);
       if (permission === "granted") {
         card.textContent = "알림을 받고 있어요";
+        savePushToken(user).catch(error => console.error("푸시 토큰 저장 실패", error));
       } else if (permission === "denied") {
         card.textContent = "브라우저 주소창 왼쪽 아이콘 → 알림에서 켤 수 있어요";
       }
@@ -156,7 +170,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         Cart.clear();
         document.querySelectorAll(".cart-count").forEach(element => { element.textContent = "0"; });
         show(`${paymentId}\n주문이 접수되었습니다`);
-        showNotificationCard();
+        showNotificationCard(user);
       } catch (error) {
         show(String(error));
       }

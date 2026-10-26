@@ -1,9 +1,21 @@
-import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging.js";
 import { getDownloadURL, getStorage, ref } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
 import { app, authReady } from "./auth.js";
 
 const db = getFirestore(app);
 const storage = getStorage(app);
+const VAPID_KEY = "BPKhn-mp1hqa5X0-dCd2_xPp8H488i6AxeSGm66rb0lR9lLLH4AqRD16LUHFTKx5fBbWEmikGgisaOYhBcThatE";
+
+async function savePushToken(user) {
+  if (Notification.permission !== "granted") return;
+  const serviceWorkerRegistration = await navigator.serviceWorker.ready;
+  const token = await getToken(getMessaging(app), {vapidKey: VAPID_KEY, serviceWorkerRegistration});
+  await setDoc(doc(db, "pushTokens", user.uid), {
+    token,
+    updatedAt: serverTimestamp()
+  }, {merge: true});
+}
 const stocks = {
   p2: { stock: 30, isVisible: true },
   p3: { stock: 8, isVisible: true },
@@ -202,13 +214,14 @@ async function renderDetail(box) {
   const buyButton = document.querySelector("#buy-now");
   const buyStatus = document.querySelector("#buy-now-status");
 
-  function showNotificationCard() {
+  function showNotificationCard(user) {
     const card = document.createElement("section");
     card.className = "notification-opt-in";
     buyStatus.after(card);
 
     if (Notification.permission === "granted") {
       card.textContent = "알림을 받고 있어요";
+      savePushToken(user).catch(error => console.error("푸시 토큰 저장 실패", error));
       return;
     }
     if (Notification.permission === "denied") {
@@ -233,6 +246,7 @@ async function renderDetail(box) {
       console.log("알림 권한", permission);
       if (permission === "granted") {
         card.textContent = "알림을 받고 있어요";
+        savePushToken(user).catch(error => console.error("푸시 토큰 저장 실패", error));
       } else if (permission === "denied") {
         card.textContent = "브라우저 주소창 왼쪽 아이콘 → 알림에서 켤 수 있어요";
       }
@@ -273,7 +287,7 @@ async function renderDetail(box) {
         });
       });
       buyStatus.textContent = "주문했습니다";
-      showNotificationCard();
+      showNotificationCard(user);
     } catch (error) {
       buyStatus.textContent = error.code === "out-of-stock" ? "재고가 없습니다" : String(error);
     } finally {
