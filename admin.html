@@ -78,6 +78,7 @@
           <option value="default">정렬 없음</option>
           <option value="stock">재고 적은 순</option>
           <option value="name">이름순</option>
+          <option value="updated">최근에 고친 순</option>
         </select>
       </div>
       <p id="product-count" class="product-count" aria-live="polite"></p>
@@ -211,6 +212,12 @@
         visibleProducts.sort((a, b) => Number(a.stock) - Number(b.stock));
       } else if (productSort.value === "name") {
         visibleProducts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
+      } else if (productSort.value === "updated") {
+        visibleProducts.sort((a, b) => {
+          const aTime = a.updatedAt?.toMillis?.() ?? -1;
+          const bTime = b.updatedAt?.toMillis?.() ?? -1;
+          return bTime - aTime;
+        });
       }
       productBody.replaceChildren();
       visibleProducts.forEach(renderProductRow);
@@ -245,11 +252,11 @@
           const entered = prompt("재고를 입력하세요. 1 이상의 정수만 가능합니다.");
           stock = numberValue(entered, "재고", 1);
         }
-        await updateDoc(doc(db, "products", product.id), { stock });
+        await updateDoc(doc(db, "products", product.id), { stock, updatedAt: serverTimestamp() });
         await loadProducts();
       }));
       row.append(makeToggle("노출", product.isVisible !== false, async input => {
-        await updateDoc(doc(db, "products", product.id), { isVisible: input.checked });
+        await updateDoc(doc(db, "products", product.id), { isVisible: input.checked, updatedAt: serverTimestamp() });
         await loadProducts();
       }));
 
@@ -290,14 +297,15 @@
           await updateDoc(doc(db, "products", product.id), {
             price: numberValue(values.get("price"), "가격", 1),
             summary: values.get("summary"),
-            stock: numberValue(values.get("stock"), "재고", 0)
+            stock: numberValue(values.get("stock"), "재고", 0),
+            updatedAt: serverTimestamp()
           });
           if (photo && photo.size > 0) {
             const path = `products/${product.id}/main.jpg`;
             await uploadPhoto(path, photo, percent => {
               progress.textContent = `올리는 중 ${percent} %`;
             });
-            await updateDoc(doc(db, "products", product.id), { imagePath: path });
+            await updateDoc(doc(db, "products", product.id), { imagePath: path, updatedAt: serverTimestamp() });
           }
           await loadProducts();
         } catch (updateError) {
@@ -339,14 +347,15 @@
           summary: values.get("summary"),
           stock: numberValue(values.get("stock"), "재고", 0),
           isVisible: false,
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
         if (photo && photo.size > 0) {
           const path = `products/${product.id}/main.jpg`;
           await uploadPhoto(path, photo, percent => {
             newProductProgress.textContent = `올리는 중 ${percent} %`;
           });
-          await updateDoc(product, { imagePath: path });
+          await updateDoc(product, { imagePath: path, updatedAt: serverTimestamp() });
         }
         newProductForm.reset();
         newProductForm.hidden = true;
