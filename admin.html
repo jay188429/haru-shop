@@ -26,6 +26,15 @@
     .admin-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
     #admin-status { min-height: 28px; margin: 18px 0 0; white-space: pre-wrap; }
     #admin-account-info { margin-top: 12px; line-height: 1.8; }
+    #product-admin { margin-top: 24px; }
+    .product-admin-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .product-table-wrap { overflow-x: auto; margin-top: 16px; }
+    .product-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    .product-table th, .product-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    .product-table input[type="number"], .product-table input[type="text"] { width: 100%; min-width: 90px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    .product-editor { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; align-items: end; }
+    .product-editor label { display: grid; gap: 4px; }
+    .product-error { color: #b42318; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -39,17 +48,46 @@
       <div id="admin-account-info"></div>
       <div id="admin-actions" class="admin-actions"></div>
     </section>
+    <section id="product-admin" class="admin-card" hidden>
+      <div class="product-admin-head">
+        <h2>상품 관리</h2>
+        <button id="new-product-button" class="btn" type="button">새 상품</button>
+      </div>
+      <form id="new-product-form" class="product-editor" hidden>
+        <label>상품명<input name="name" type="text" required></label>
+        <label>가격<input name="price" type="number" min="1" required></label>
+        <label>설명<input name="summary" type="text" required></label>
+        <label>재고<input name="stock" type="number" min="0" step="1" required></label>
+        <button class="btn" type="submit">저장</button>
+        <p id="new-product-error" class="product-error" aria-live="polite"></p>
+      </form>
+      <p id="product-load-error" class="product-error" aria-live="polite"></p>
+      <div class="product-table-wrap">
+        <table class="product-table">
+          <thead><tr><th>문서 ID</th><th>상품명</th><th>가격</th><th>재고</th><th>품절</th><th>노출</th><th>관리</th></tr></thead>
+          <tbody id="product-table-body"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script type="module">
     import { getIdToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
+    import { addDoc, collection, getDocs, getFirestore, serverTimestamp, updateDoc, doc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
     import { app, auth, authReady } from "./assets/auth.js";
 
     const status = document.querySelector("#admin-status");
     const accountInfo = document.querySelector("#admin-account-info");
     const actions = document.querySelector("#admin-actions");
+    const productAdmin = document.querySelector("#product-admin");
+    const productBody = document.querySelector("#product-table-body");
+    const productLoadError = document.querySelector("#product-load-error");
+    const newProductButton = document.querySelector("#new-product-button");
+    const newProductForm = document.querySelector("#new-product-form");
+    const newProductError = document.querySelector("#new-product-error");
     const functions = getFunctions(app, "us-central1");
+    const db = getFirestore(app);
     const grantOwnerRole = httpsCallable(functions, "grantOwnerRole");
 
     const button = (label, handler) => {
@@ -60,6 +98,150 @@
       item.addEventListener("click", handler);
       return item;
     };
+
+    const errorText = error => String(error?.message || error);
+
+    function numberValue(value, label, minimum) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || !Number.isInteger(number) || number < minimum) {
+        throw new Error(`${label}은(는) ${minimum} 이상의 숫자여야 합니다.`);
+      }
+      return number;
+    }
+
+    function textCell(value) {
+      const cell = document.createElement("td");
+      cell.textContent = value == null ? "" : String(value);
+      return cell;
+    }
+
+    function makeToggle(label, checked, onChange) {
+      const cell = document.createElement("td");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = checked;
+      input.setAttribute("aria-label", label);
+      const errorLine = document.createElement("span");
+      errorLine.className = "product-error";
+      input.addEventListener("change", async () => {
+        input.disabled = true;
+        errorLine.textContent = "";
+        try {
+          await onChange(input);
+        } catch (error) {
+          input.checked = !input.checked;
+          errorLine.textContent = errorText(error);
+        } finally {
+          input.disabled = false;
+        }
+      });
+      cell.append(input, errorLine);
+      return cell;
+    }
+
+    async function loadProducts() {
+      productLoadError.textContent = "";
+      productBody.replaceChildren();
+      try {
+        const snapshot = await getDocs(collection(db, "products"));
+        snapshot.docs
+          .map(item => ({ id: item.id, ...item.data() }))
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .forEach(renderProductRow);
+      } catch (error) {
+        productLoadError.textContent = errorText(error);
+      }
+    }
+
+    function renderProductRow(product) {
+      const row = document.createElement("tr");
+      row.append(
+        textCell(product.id),
+        textCell(product.name),
+        textCell(product.price),
+        textCell(product.stock)
+      );
+      row.append(makeToggle("품절", Number(product.stock) === 0, async input => {
+        let stock = 0;
+        if (!input.checked) {
+          const entered = prompt("재고를 입력하세요. 1 이상의 정수만 가능합니다.");
+          stock = numberValue(entered, "재고", 1);
+        }
+        await updateDoc(doc(db, "products", product.id), { stock });
+        await loadProducts();
+      }));
+      row.append(makeToggle("노출", product.isVisible !== false, async input => {
+        await updateDoc(doc(db, "products", product.id), { isVisible: input.checked });
+        await loadProducts();
+      }));
+
+      const manage = document.createElement("td");
+      const edit = button("고치기", () => openEditor(row, product));
+      manage.append(edit);
+      row.append(manage);
+      productBody.append(row);
+    }
+
+    function openEditor(row, product) {
+      const editorRow = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 7;
+      const form = document.createElement("form");
+      form.className = "product-editor";
+      form.innerHTML = `
+        <label>가격<input name="price" type="number" min="1" value="${Number(product.price) || 0}" required></label>
+        <label>설명<input name="summary" type="text" value="${product.summary || ""}" required></label>
+        <label>재고<input name="stock" type="number" min="0" step="1" value="${Number(product.stock) || 0}" required></label>`;
+      const save = button("저장", async () => {});
+      save.type = "submit";
+      const cancel = button("취소", () => editorRow.remove());
+      const error = document.createElement("p");
+      error.className = "product-error";
+      form.append(save, cancel, error);
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        try {
+          const values = new FormData(form);
+          await updateDoc(doc(db, "products", product.id), {
+            price: numberValue(values.get("price"), "가격", 1),
+            summary: values.get("summary"),
+            stock: numberValue(values.get("stock"), "재고", 0)
+          });
+          await loadProducts();
+        } catch (updateError) {
+          error.textContent = errorText(updateError);
+        }
+      });
+      cell.append(form);
+      editorRow.append(cell);
+      row.after(editorRow);
+    }
+
+    newProductButton.addEventListener("click", () => {
+      newProductForm.hidden = !newProductForm.hidden;
+      newProductError.textContent = "";
+    });
+
+    newProductForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      newProductError.textContent = "";
+      try {
+        const values = new FormData(newProductForm);
+        await addDoc(collection(db, "products"), {
+          name: values.get("name"),
+          price: numberValue(values.get("price"), "가격", 1),
+          summary: values.get("summary"),
+          stock: numberValue(values.get("stock"), "재고", 0),
+          isVisible: false,
+          createdAt: serverTimestamp()
+        });
+        newProductForm.reset();
+        newProductForm.hidden = true;
+        await loadProducts();
+      } catch (error) {
+        newProductError.textContent = errorText(error);
+      }
+    });
 
     async function showAdmin(user) {
       actions.replaceChildren();
@@ -87,8 +269,11 @@
         accountInfo.append(emailLine, issuedAtLine);
         if (role === "staff" || role === "admin") {
           status.textContent = `관리자: ${role}`;
+          productAdmin.hidden = false;
+          await loadProducts();
         } else {
           status.textContent = "권한이 없습니다";
+          productAdmin.hidden = true;
           actions.append(button("주인 명찰 받기", async () => {
             try {
               await grantOwnerRole();
@@ -106,6 +291,7 @@
         }));
       } catch (error) {
         status.textContent = error.message;
+        productAdmin.hidden = true;
       }
     }
 

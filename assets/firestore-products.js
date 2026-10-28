@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, where, writeBatch } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging.js";
 import { getDownloadURL, getStorage, ref } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
 import { app, authReady } from "./auth.js";
@@ -16,14 +16,6 @@ async function savePushToken(user) {
     updatedAt: serverTimestamp()
   }, {merge: true});
 }
-const stocks = {
-  p2: { stock: 30, isVisible: true },
-  p3: { stock: 8, isVisible: true },
-  p4: { stock: 0, isVisible: true },
-  p5: { stock: 5, isVisible: false },
-  p6: { stock: 40, isVisible: true }
-};
-
 function setReadCount(host, count) {
   let line = host.parentElement.querySelector("#firestore-read-count");
   if (!line) {
@@ -33,51 +25,6 @@ function setReadCount(host, count) {
   }
   line.className = "read-count";
   line.textContent = `이번 화면에서 읽은 문서 ${count}장`;
-}
-
-function setUploadStatus(control, message) {
-  const status = control.querySelector(".product-upload-status");
-  status.textContent = message;
-}
-
-function addUploadControl(box) {
-  authReady.then(user => {
-    if (!user || document.querySelector("#product-upload-control")) return;
-
-    const control = document.createElement("div");
-    control.id = "product-upload-control";
-    control.className = "product-upload";
-    control.innerHTML = `
-      <button class="btn" id="upload-products" type="button">상품 올리기</button>
-      <p class="product-upload-status" aria-live="polite"></p>`;
-    box.parentElement.insertBefore(control, box);
-
-    control.querySelector("#upload-products").addEventListener("click", async event => {
-      const button = event.currentTarget;
-      button.disabled = true;
-
-      try {
-        const batch = writeBatch(db);
-        PRODUCTS.filter(product => stocks[product.id]).forEach(product => {
-          const setting = stocks[product.id];
-          batch.set(doc(db, "products", product.id), {
-            name: product.name,
-            price: product.price,
-            summary: product.summary,
-            stock: setting.stock,
-            isVisible: setting.isVisible,
-            createdAt: serverTimestamp()
-          });
-        });
-        await batch.commit();
-        setUploadStatus(control, "상품 5개를 올렸습니다.");
-      } catch (error) {
-        setUploadStatus(control, String(error));
-      } finally {
-        button.disabled = false;
-      }
-    });
-  });
 }
 
 let lastDoc = null;
@@ -300,7 +247,6 @@ const listBox = document.querySelector("#product-list");
 const detailBox = document.querySelector("#product-detail");
 
 if (listBox) {
-  addUploadControl(listBox);
   loadListPage(listBox);
 }
 
