@@ -31,8 +31,10 @@
     .product-table-wrap { overflow-x: auto; margin-top: 16px; }
     .product-table { width: 100%; border-collapse: collapse; min-width: 760px; }
     .product-table th, .product-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+    .product-thumbnail { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; display: block; }
     .product-table input[type="number"], .product-table input[type="text"] { width: 100%; min-width: 90px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
     .product-editor { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; align-items: end; }
+    .product-editor input[type="file"] { max-width: 100%; }
     .product-editor label { display: grid; gap: 4px; }
     .product-error { color: #b42318; white-space: pre-wrap; }
   </style>
@@ -58,13 +60,15 @@
         <label>가격<input name="price" type="number" min="1" required></label>
         <label>설명<input name="summary" type="text" required></label>
         <label>재고<input name="stock" type="number" min="0" step="1" required></label>
+        <label>사진<input name="photo" type="file" accept="image/*"></label>
         <button class="btn" type="submit">저장</button>
+        <p id="new-product-progress" aria-live="polite"></p>
         <p id="new-product-error" class="product-error" aria-live="polite"></p>
       </form>
       <p id="product-load-error" class="product-error" aria-live="polite"></p>
       <div class="product-table-wrap">
         <table class="product-table">
-          <thead><tr><th>문서 ID</th><th>상품명</th><th>가격</th><th>재고</th><th>품절</th><th>노출</th><th>관리</th></tr></thead>
+          <thead><tr><th>문서 ID</th><th>사진</th><th>상품명</th><th>가격</th><th>재고</th><th>품절</th><th>노출</th><th>관리</th></tr></thead>
           <tbody id="product-table-body"></tbody>
         </table>
       </div>
@@ -75,6 +79,7 @@
     import { getIdToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
     import { addDoc, collection, getDocs, getFirestore, serverTimestamp, updateDoc, doc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+    import { getDownloadURL, getStorage, ref, uploadBytesResumable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
     import { app, auth, authReady } from "./assets/auth.js";
 
     const status = document.querySelector("#admin-status");
@@ -85,9 +90,11 @@
     const productLoadError = document.querySelector("#product-load-error");
     const newProductButton = document.querySelector("#new-product-button");
     const newProductForm = document.querySelector("#new-product-form");
+    const newProductProgress = document.querySelector("#new-product-progress");
     const newProductError = document.querySelector("#new-product-error");
     const functions = getFunctions(app, "us-central1");
     const db = getFirestore(app);
+    const storage = getStorage(app);
     const grantOwnerRole = httpsCallable(functions, "grantOwnerRole");
 
     const button = (label, handler) => {
@@ -113,6 +120,25 @@
       const cell = document.createElement("td");
       cell.textContent = value == null ? "" : String(value);
       return cell;
+    }
+
+    function validatePhoto(file) {
+      if (!file || file.size === 0) return;
+      if (file.size >= 5 * 1024 * 1024) {
+        throw new Error("5MB 넘는 사진은 올릴 수 없습니다");
+      }
+      if (!file.type.startsWith("image/")) {
+        throw new Error("이미지 파일만 올릴 수 있습니다");
+      }
+    }
+
+    function uploadPhoto(path, file, onProgress) {
+      const upload = uploadBytesResumable(ref(storage, path), file, { contentType: file.type });
+      return new Promise((resolve, reject) => {
+        upload.on("state_changed", snapshot => {
+          onProgress(Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100));
+        }, reject, resolve);
+      });
     }
 
     function makeToggle(label, checked, onChange) {
@@ -155,8 +181,22 @@
 
     function renderProductRow(product) {
       const row = document.createElement("tr");
+      const imageCell = document.createElement("td");
+      if (product.imagePath) {
+        const image = document.createElement("img");
+        image.className = "product-thumbnail";
+        image.alt = `${product.name || product.id} 사진`;
+        image.src = "";
+        getDownloadURL(ref(storage, product.imagePath)).then(url => {
+          image.src = url;
+          imageCell.append(image);
+        }).catch(error => {
+          imageCell.textContent = errorText(error);
+        });
+      }
       row.append(
         textCell(product.id),
+        imageCell,
         textCell(product.name),
         textCell(product.price),
         textCell(product.stock)
@@ -185,31 +225,47 @@
     function openEditor(row, product) {
       const editorRow = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 7;
+      cell.colSpan = 8;
       const form = document.createElement("form");
       form.className = "product-editor";
       form.innerHTML = `
         <label>가격<input name="price" type="number" min="1" value="${Number(product.price) || 0}" required></label>
         <label>설명<input name="summary" type="text" value="${product.summary || ""}" required></label>
-        <label>재고<input name="stock" type="number" min="0" step="1" value="${Number(product.stock) || 0}" required></label>`;
+        <label>재고<input name="stock" type="number" min="0" step="1" value="${Number(product.stock) || 0}" required></label>
+        <label>사진<input name="photo" type="file" accept="image/*"></label>`;
       const save = button("저장", async () => {});
       save.type = "submit";
       const cancel = button("취소", () => editorRow.remove());
       const error = document.createElement("p");
       error.className = "product-error";
-      form.append(save, cancel, error);
+      const progress = document.createElement("p");
+      form.append(save, cancel, progress, error);
       form.addEventListener("submit", async event => {
         event.preventDefault();
+        save.disabled = true;
+        error.textContent = "";
+        progress.textContent = "";
         try {
           const values = new FormData(form);
+          const photo = values.get("photo");
+          validatePhoto(photo);
           await updateDoc(doc(db, "products", product.id), {
             price: numberValue(values.get("price"), "가격", 1),
             summary: values.get("summary"),
             stock: numberValue(values.get("stock"), "재고", 0)
           });
+          if (photo && photo.size > 0) {
+            const path = `products/${product.id}/main.jpg`;
+            await uploadPhoto(path, photo, percent => {
+              progress.textContent = `올리는 중 ${percent} %`;
+            });
+            await updateDoc(doc(db, "products", product.id), { imagePath: path });
+          }
           await loadProducts();
         } catch (updateError) {
           error.textContent = errorText(updateError);
+        } finally {
+          save.disabled = false;
         }
       });
       cell.append(form);
@@ -220,6 +276,7 @@
     newProductButton.addEventListener("click", () => {
       newProductForm.hidden = !newProductForm.hidden;
       newProductError.textContent = "";
+      newProductProgress.textContent = "";
     });
 
     newProductForm.addEventListener("submit", async event => {
@@ -227,7 +284,9 @@
       newProductError.textContent = "";
       try {
         const values = new FormData(newProductForm);
-        await addDoc(collection(db, "products"), {
+        const photo = values.get("photo");
+        validatePhoto(photo);
+        const product = await addDoc(collection(db, "products"), {
           name: values.get("name"),
           price: numberValue(values.get("price"), "가격", 1),
           summary: values.get("summary"),
@@ -235,6 +294,13 @@
           isVisible: false,
           createdAt: serverTimestamp()
         });
+        if (photo && photo.size > 0) {
+          const path = `products/${product.id}/main.jpg`;
+          await uploadPhoto(path, photo, percent => {
+            newProductProgress.textContent = `올리는 중 ${percent} %`;
+          });
+          await updateDoc(product, { imagePath: path });
+        }
         newProductForm.reset();
         newProductForm.hidden = true;
         await loadProducts();
