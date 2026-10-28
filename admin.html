@@ -25,6 +25,7 @@
     .admin-card { padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
     .admin-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
     #admin-status { min-height: 28px; margin: 18px 0 0; white-space: pre-wrap; }
+    #admin-account-info { margin-top: 12px; line-height: 1.8; }
   </style>
 </head>
 <body>
@@ -35,6 +36,7 @@
     <h1>하루상점 관리 화면</h1>
     <section class="admin-card" aria-live="polite">
       <p id="admin-status">확인 중입니다.</p>
+      <div id="admin-account-info"></div>
       <div id="admin-actions" class="admin-actions"></div>
     </section>
   </main>
@@ -45,6 +47,7 @@
     import { app, auth, authReady } from "./assets/auth.js";
 
     const status = document.querySelector("#admin-status");
+    const accountInfo = document.querySelector("#admin-account-info");
     const actions = document.querySelector("#admin-actions");
     const functions = getFunctions(app, "us-central1");
     const grantOwnerRole = httpsCallable(functions, "grantOwnerRole");
@@ -62,6 +65,7 @@
       actions.replaceChildren();
       if (!user) {
         status.textContent = "로그인이 필요합니다";
+        accountInfo.replaceChildren();
         const link = document.createElement("a");
         link.href = "/login.html";
         link.textContent = "로그인 화면으로 이동";
@@ -72,6 +76,15 @@
       try {
         const tokenResult = await user.getIdTokenResult();
         const role = tokenResult.claims.role;
+        accountInfo.replaceChildren();
+        const emailLine = document.createElement("div");
+        emailLine.textContent = `로그인 : ${user.email || ""}`;
+        const issuedAtLine = document.createElement("div");
+        const issuedAt = new Date(tokenResult.issuedAtTime).toLocaleString("ko-KR", {
+          timeZone: "Asia/Seoul"
+        });
+        issuedAtLine.textContent = `토큰을 받은 시각 : ${issuedAt}`;
+        accountInfo.append(emailLine, issuedAtLine);
         if (role === "staff" || role === "admin") {
           status.textContent = `관리자: ${role}`;
         } else {
