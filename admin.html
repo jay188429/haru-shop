@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>하루상점 관리자</title>
+  <script src="assets/consent.js"></script>
+  <script async src="https://googletagmanager.com/gtag/js?id=G-MENCGV4RTE"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag("js", new Date());
+    gtag("config", "G-MENCGV4RTE");
+  </script>
+  <script>
+    (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-MQNWSZ93');
+  </script>
+  <link rel="stylesheet" href="assets/style.css">
+  <style>
+    main { max-width: 720px; margin: 0 auto; padding: 48px 20px; }
+    .admin-card { padding: 28px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+    .admin-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+    #admin-status { min-height: 28px; margin: 18px 0 0; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MQNWSZ93"
+    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+
+  <main>
+    <h1>하루상점 관리 화면</h1>
+    <section class="admin-card" aria-live="polite">
+      <p id="admin-status">확인 중입니다.</p>
+      <div id="admin-actions" class="admin-actions"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { getIdToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+    import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
+    import { app, auth, authReady } from "./assets/auth.js";
+
+    const status = document.querySelector("#admin-status");
+    const actions = document.querySelector("#admin-actions");
+    const functions = getFunctions(app, "us-central1");
+    const grantOwnerRole = httpsCallable(functions, "grantOwnerRole");
+
+    const button = (label, handler) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "btn";
+      item.textContent = label;
+      item.addEventListener("click", handler);
+      return item;
+    };
+
+    async function showAdmin(user) {
+      actions.replaceChildren();
+      if (!user) {
+        status.textContent = "로그인이 필요합니다";
+        const link = document.createElement("a");
+        link.href = "/login.html";
+        link.textContent = "로그인 화면으로 이동";
+        actions.append(link);
+        return;
+      }
+
+      try {
+        const tokenResult = await user.getIdTokenResult();
+        const role = tokenResult.claims.role;
+        if (role === "staff" || role === "admin") {
+          status.textContent = `관리자: ${role}`;
+        } else {
+          status.textContent = "권한이 없습니다";
+          actions.append(button("주인 명찰 받기", async () => {
+            try {
+              await grantOwnerRole();
+              await getIdToken(user, true);
+              await showAdmin(user);
+            } catch (error) {
+              status.textContent = error.message;
+            }
+          }));
+        }
+
+        actions.append(button("다시 확인", async () => {
+          await getIdToken(user, true);
+          await showAdmin(user);
+        }));
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    authReady.then(showAdmin);
+  </script>
+</body>
+</html>
