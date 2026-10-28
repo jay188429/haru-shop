@@ -73,6 +73,7 @@
         <button class="btn ghost product-filter" type="button" data-filter="all">전체</button>
         <button class="btn ghost product-filter" type="button" data-filter="soldout">품절만</button>
         <button class="btn ghost product-filter" type="button" data-filter="hidden">숨김만</button>
+        <button class="btn ghost product-filter" type="button" data-filter="removed">내린 상품</button>
         <input id="product-search" type="search" placeholder="상품명 검색" aria-label="상품명 검색">
         <select id="product-sort" aria-label="상품 정렬">
           <option value="default">정렬 없음</option>
@@ -88,13 +89,19 @@
           <tbody id="product-table-body"></tbody>
         </table>
       </div>
+      <p id="product-action-message" aria-live="polite"></p>
+      <section id="recent-activity" class="admin-card">
+        <h2>최근 활동</h2>
+        <p id="recent-activity-error" class="product-error" aria-live="polite"></p>
+        <div id="recent-activity-list"></div>
+      </section>
     </section>
   </main>
 
   <script type="module">
     import { getIdToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
-    import { addDoc, collection, getDocs, getFirestore, serverTimestamp, updateDoc, doc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+    import { addDoc, collection, deleteField, doc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
     import { getDownloadURL, getStorage, ref, uploadBytesResumable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
     import { app, auth, authReady } from "./assets/auth.js";
 
@@ -112,6 +119,9 @@
     const productSort = document.querySelector("#product-sort");
     const productCount = document.querySelector("#product-count");
     const filterButtons = [...document.querySelectorAll(".product-filter")];
+    const productActionMessage = document.querySelector("#product-action-message");
+    const recentActivityError = document.querySelector("#recent-activity-error");
+    const recentActivityList = document.querySelector("#recent-activity-list");
     const functions = getFunctions(app, "us-central1");
     const db = getFirestore(app);
     const storage = getStorage(app);
@@ -196,6 +206,7 @@
           .map(item => ({ id: item.id, ...item.data() }))
           .sort((a, b) => a.id.localeCompare(b.id));
         renderVisibleProducts();
+        await loadRecentActivity();
       } catch (error) {
         productLoadError.textContent = errorText(error);
       }
@@ -206,6 +217,8 @@
       let visibleProducts = allProducts.filter(product => {
         if (activeFilter === "soldout" && Number(product.stock) !== 0) return false;
         if (activeFilter === "hidden" && product.isVisible !== false) return false;
+        if (activeFilter === "removed" && !product.deletedAt) return false;
+        if (activeFilter !== "removed" && product.deletedAt) return false;
         return String(product.name || "").toLocaleLowerCase().includes(search);
       });
       if (productSort.value === "stock") {
@@ -222,6 +235,28 @@
       productBody.replaceChildren();
       visibleProducts.forEach(renderProductRow);
       productCount.textContent = `지금 보이는 상품 ${visibleProducts.length}개 / 전체 ${allProducts.length}개`;
+    }
+
+    async function loadRecentActivity() {
+      recentActivityError.textContent = "";
+      recentActivityList.replaceChildren();
+      try {
+        const snapshot = await getDocs(query(collection(db, "adminLogs"), orderBy("at", "desc"), limit(10)));
+        if (snapshot.empty) {
+          recentActivityList.textContent = "아직 활동이 없습니다.";
+          return;
+        }
+        snapshot.docs.forEach(logDoc => {
+          const log = logDoc.data();
+          const line = document.createElement("p");
+          const time = log.at?.toDate?.().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) || "시간 없음";
+          const product = allProducts.find(item => item.id === log.productId);
+          line.textContent = `${time} · ${product?.name || log.productId || "상품 없음"} · ${log.action || ""} · ${Array.isArray(log.changedKeys) ? log.changedKeys.join(", ") : ""}`;
+          recentActivityList.append(line);
+        });
+      } catch (error) {
+        recentActivityError.textContent = errorText(error);
+      }
     }
 
     function renderProductRow(product) {
@@ -262,7 +297,52 @@
 
       const manage = document.createElement("td");
       const edit = button("고치기", () => openEditor(row, product));
-      manage.append(edit);
+      if (product.deletedAt) {
+        manage.append(button("되돌리기", async () => {
+          try {
+            await updateDoc(doc(db, "products", product.id), {
+              deletedAt: deleteField(),
+              isVisible: true,
+              updatedAt: serverTimestamp()
+            });
+            productActionMessage.textContent = `되돌렸습니다: ${product.name || product.id}`;
+            await loadProducts();
+          } catch (error) {
+            productActionMessage.textContent = errorText(error);
+          }
+        }));
+      } else {
+        manage.append(button("내리기", async () => {
+          if (!confirm(`『${product.name || product.id}』을 가게에서 내립니다`)) return;
+          try {
+            await updateDoc(doc(db, "products", product.id), {
+              deletedAt: serverTimestamp(),
+              isVisible: false,
+              updatedAt: serverTimestamp()
+            });
+            productActionMessage.replaceChildren();
+            const message = document.createElement("span");
+            message.textContent = `${product.name || product.id}을 가게에서 내렸습니다. `;
+            const restore = button("되돌리기", async () => {
+              try {
+                await updateDoc(doc(db, "products", product.id), {
+                  deletedAt: deleteField(),
+                  isVisible: true,
+                  updatedAt: serverTimestamp()
+                });
+                productActionMessage.textContent = `되돌렸습니다: ${product.name || product.id}`;
+                await loadProducts();
+              } catch (error) {
+                productActionMessage.textContent = errorText(error);
+              }
+            });
+            productActionMessage.append(message, restore);
+            await loadProducts();
+          } catch (error) {
+            productActionMessage.textContent = errorText(error);
+          }
+        }), edit);
+      }
       row.append(manage);
       productBody.append(row);
     }
