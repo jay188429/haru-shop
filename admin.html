@@ -37,6 +37,9 @@
     .product-editor input[type="file"] { max-width: 100%; }
     .product-editor label { display: grid; gap: 4px; }
     .product-error { color: #b42318; white-space: pre-wrap; }
+    .product-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+    .product-controls input, .product-controls select { padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+    .product-count { margin: 14px 0 0; color: var(--sub); }
   </style>
 </head>
 <body>
@@ -66,6 +69,18 @@
         <p id="new-product-error" class="product-error" aria-live="polite"></p>
       </form>
       <p id="product-load-error" class="product-error" aria-live="polite"></p>
+      <div class="product-controls">
+        <button class="btn ghost product-filter" type="button" data-filter="all">전체</button>
+        <button class="btn ghost product-filter" type="button" data-filter="soldout">품절만</button>
+        <button class="btn ghost product-filter" type="button" data-filter="hidden">숨김만</button>
+        <input id="product-search" type="search" placeholder="상품명 검색" aria-label="상품명 검색">
+        <select id="product-sort" aria-label="상품 정렬">
+          <option value="default">정렬 없음</option>
+          <option value="stock">재고 적은 순</option>
+          <option value="name">이름순</option>
+        </select>
+      </div>
+      <p id="product-count" class="product-count" aria-live="polite"></p>
       <div class="product-table-wrap">
         <table class="product-table">
           <thead><tr><th>문서 ID</th><th>사진</th><th>상품명</th><th>가격</th><th>재고</th><th>품절</th><th>노출</th><th>관리</th></tr></thead>
@@ -92,10 +107,16 @@
     const newProductForm = document.querySelector("#new-product-form");
     const newProductProgress = document.querySelector("#new-product-progress");
     const newProductError = document.querySelector("#new-product-error");
+    const productSearch = document.querySelector("#product-search");
+    const productSort = document.querySelector("#product-sort");
+    const productCount = document.querySelector("#product-count");
+    const filterButtons = [...document.querySelectorAll(".product-filter")];
     const functions = getFunctions(app, "us-central1");
     const db = getFirestore(app);
     const storage = getStorage(app);
     const grantOwnerRole = httpsCallable(functions, "grantOwnerRole");
+    let allProducts = [];
+    let activeFilter = "all";
 
     const button = (label, handler) => {
       const item = document.createElement("button");
@@ -170,13 +191,30 @@
       productBody.replaceChildren();
       try {
         const snapshot = await getDocs(collection(db, "products"));
-        snapshot.docs
+        allProducts = snapshot.docs
           .map(item => ({ id: item.id, ...item.data() }))
-          .sort((a, b) => a.id.localeCompare(b.id))
-          .forEach(renderProductRow);
+          .sort((a, b) => a.id.localeCompare(b.id));
+        renderVisibleProducts();
       } catch (error) {
         productLoadError.textContent = errorText(error);
       }
+    }
+
+    function renderVisibleProducts() {
+      const search = productSearch.value.trim().toLocaleLowerCase();
+      let visibleProducts = allProducts.filter(product => {
+        if (activeFilter === "soldout" && Number(product.stock) !== 0) return false;
+        if (activeFilter === "hidden" && product.isVisible !== false) return false;
+        return String(product.name || "").toLocaleLowerCase().includes(search);
+      });
+      if (productSort.value === "stock") {
+        visibleProducts.sort((a, b) => Number(a.stock) - Number(b.stock));
+      } else if (productSort.value === "name") {
+        visibleProducts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"));
+      }
+      productBody.replaceChildren();
+      visibleProducts.forEach(renderProductRow);
+      productCount.textContent = `지금 보이는 상품 ${visibleProducts.length}개 / 전체 ${allProducts.length}개`;
     }
 
     function renderProductRow(product) {
@@ -278,6 +316,15 @@
       newProductError.textContent = "";
       newProductProgress.textContent = "";
     });
+
+    filterButtons.forEach(filterButton => {
+      filterButton.addEventListener("click", () => {
+        activeFilter = filterButton.dataset.filter;
+        renderVisibleProducts();
+      });
+    });
+    productSearch.addEventListener("input", renderVisibleProducts);
+    productSort.addEventListener("change", renderVisibleProducts);
 
     newProductForm.addEventListener("submit", async event => {
       event.preventDefault();
