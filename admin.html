@@ -128,6 +128,15 @@
     const grantOwnerRole = httpsCallable(functions, "grantOwnerRole");
     let allProducts = [];
     let activeFilter = "all";
+    const changedKeyLabels = {
+      deletedAt: "내림 표시",
+      isVisible: "노출",
+      stock: "재고",
+      price: "가격",
+      name: "이름",
+      summary: "설명",
+      imagePath: "사진"
+    };
 
     const button = (label, handler) => {
       const item = document.createElement("button");
@@ -251,7 +260,8 @@
           const line = document.createElement("p");
           const time = log.at?.toDate?.().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) || "시간 없음";
           const product = allProducts.find(item => item.id === log.productId);
-          line.textContent = `${time} · ${product?.name || log.productId || "상품 없음"} · ${log.action || ""} · ${Array.isArray(log.changedKeys) ? log.changedKeys.join(", ") : ""}`;
+          const changedKeys = Array.isArray(log.changedKeys) ? log.changedKeys.map(key => changedKeyLabels[key] || key).join(", ") : "";
+          line.textContent = `${time} · ${product?.name || log.productId || "상품 없음"} · ${log.action || ""} · ${changedKeys}`;
           recentActivityList.append(line);
         });
       } catch (error) {
