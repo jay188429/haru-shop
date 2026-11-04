@@ -53,6 +53,11 @@
     .order-error { color: #b42318; white-space: pre-wrap; min-height: 1.5em; }
     .order-confirm { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
     .order-confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .sales-admin { margin-top: 24px; }
+    .sales-chart-wrap { position: relative; height: 320px; margin-top: 18px; }
+    .sales-table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+    .sales-table th, .sales-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+    .sales-error { color: #b42318; white-space: pre-wrap; min-height: 1.5em; }
   </style>
 </head>
 <body>
@@ -69,6 +74,7 @@
     <div id="admin-tabs" class="admin-tabs" hidden>
       <button id="products-tab" class="btn active" type="button">상품</button>
       <button id="orders-tab" class="btn ghost" type="button">주문</button>
+      <button id="sales-tab" class="btn ghost" type="button">매출</button>
     </div>
     <section id="product-admin" class="admin-card" hidden>
       <div class="product-admin-head">
@@ -132,8 +138,20 @@
       <button id="orders-more" class="btn ghost" type="button" hidden>더 보기</button>
       <div id="order-detail" class="order-detail" hidden></div>
     </section>
+    <section id="sales-admin" class="admin-card sales-admin" hidden>
+      <h2>매출</h2>
+      <p id="sales-headline"></p>
+      <p id="sales-last-counted"></p>
+      <p id="sales-error" class="sales-error" aria-live="polite"></p>
+      <div class="sales-chart-wrap"><canvas id="sales-chart"></canvas></div>
+      <table class="sales-table">
+        <thead><tr><th>날짜</th><th>건수</th><th>매출</th><th>센 시각</th></tr></thead>
+        <tbody id="sales-table-body"></tbody>
+      </table>
+    </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script type="module">
     import { getIdToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
@@ -167,6 +185,13 @@
     const ordersList = document.querySelector("#orders-list");
     const ordersMore = document.querySelector("#orders-more");
     const orderDetail = document.querySelector("#order-detail");
+    const salesTab = document.querySelector("#sales-tab");
+    const salesAdmin = document.querySelector("#sales-admin");
+    const salesHeadline = document.querySelector("#sales-headline");
+    const salesLastCounted = document.querySelector("#sales-last-counted");
+    const salesError = document.querySelector("#sales-error");
+    const salesChartCanvas = document.querySelector("#sales-chart");
+    const salesTableBody = document.querySelector("#sales-table-body");
     const functions = getFunctions(app, "us-central1");
     const db = getFirestore(app);
     const storage = getStorage(app);
@@ -187,6 +212,7 @@
     let orderHasMore = false;
     let orderLoading = false;
     let selectedOrder = null;
+    let salesChart = null;
 
     const button = (label, handler) => {
       const item = document.createElement("button");
@@ -445,8 +471,11 @@
       productsTab.classList.remove("ghost");
       ordersTab.classList.remove("active");
       ordersTab.classList.add("ghost");
+      salesTab.classList.remove("active");
+      salesTab.classList.add("ghost");
       productAdmin.hidden = false;
       ordersAdmin.hidden = true;
+      salesAdmin.hidden = true;
     }
 
     function showOrdersTab() {
@@ -454,13 +483,100 @@
       productsTab.classList.add("ghost");
       ordersTab.classList.add("active");
       ordersTab.classList.remove("ghost");
+      salesTab.classList.remove("active");
+      salesTab.classList.add("ghost");
       productAdmin.hidden = true;
       ordersAdmin.hidden = false;
+      salesAdmin.hidden = true;
       loadOrders(true);
+    }
+
+    function showSalesTab() {
+      productsTab.classList.remove("active");
+      productsTab.classList.add("ghost");
+      ordersTab.classList.remove("active");
+      ordersTab.classList.add("ghost");
+      salesTab.classList.add("active");
+      salesTab.classList.remove("ghost");
+      productAdmin.hidden = true;
+      ordersAdmin.hidden = true;
+      salesAdmin.hidden = false;
+      loadSales();
+    }
+
+    function dateKeyParts(date) {
+      return Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(date).filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+    }
+
+    function salesDateKeys() {
+      const today = dateKeyParts(new Date());
+      const todayUtc = Date.UTC(Number(today.year), Number(today.month) - 1, Number(today.day));
+      return Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(todayUtc - (index + 1) * 24 * 60 * 60 * 1000);
+        const parts = dateKeyParts(date);
+        return `${parts.year}${parts.month}${parts.day}`;
+      }).reverse();
+    }
+
+    function salesDateLabel(key) {
+      return `${key.slice(4, 6)}/${key.slice(6, 8)}`;
+    }
+
+    async function loadSales() {
+      salesError.textContent = "";
+      try {
+        const dates = salesDateKeys();
+        const snapshots = await Promise.all(dates.map(day => getDoc(doc(db, "dailyStats", day))));
+        const rows = snapshots.map((snapshot, index) => ({
+          day: dates[index],
+          exists: snapshot.exists(),
+          data: snapshot.exists() ? snapshot.data() : null
+        }));
+        const latest = [...rows].reverse().find(row => row.exists);
+        salesHeadline.textContent = latest
+          ? `${latest.day}까지의 매출입니다 - 매일 00:05에 전날을 셉니다`
+          : "아직 집계 문서가 없습니다 - 매일 00:05에 전날을 셉니다";
+        salesLastCounted.textContent = latest?.data?.countedAt
+          ? `마지막으로 센 시각 : ${orderTime(latest.data.countedAt)}`
+          : "마지막으로 센 시각 : 없음";
+
+        salesTableBody.replaceChildren();
+        rows.forEach(row => {
+          const tr = document.createElement("tr");
+          const cells = row.exists
+            ? [row.day, row.data.orderCount ?? "", `${row.data.totalSales ?? 0}원`, row.data.countedAt ? orderTime(row.data.countedAt) : ""]
+            : [row.day, "집계 없음", "집계 없음", "집계 없음"];
+          cells.forEach(value => {
+            const td = document.createElement("td");
+            td.textContent = String(value);
+            tr.append(td);
+          });
+          salesTableBody.append(tr);
+        });
+
+        if (salesChart) salesChart.destroy();
+        salesChart = new window.Chart(salesChartCanvas, {
+          type: "bar",
+          data: {
+            labels: rows.map(row => row.exists ? salesDateLabel(row.day) : [salesDateLabel(row.day), "집계 없음"]),
+            datasets: [{ label: "매출", data: rows.map(row => row.exists ? Number(row.data.totalSales || 0) : null), backgroundColor: "#8a5a2b" }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+      } catch (error) {
+        console.error(error);
+        salesError.textContent = "매출을 불러오지 못했습니다.";
+      }
     }
 
     productsTab.addEventListener("click", showProductsTab);
     ordersTab.addEventListener("click", showOrdersTab);
+    salesTab.addEventListener("click", showSalesTab);
     orderStatusFilter.addEventListener("change", () => loadOrders(true));
     ordersMore.addEventListener("click", () => loadOrders(false));
 
@@ -658,6 +774,7 @@
         adminTabs.hidden = true;
         productAdmin.hidden = true;
         ordersAdmin.hidden = true;
+        salesAdmin.hidden = true;
         const link = document.createElement("a");
         link.href = "/login.html";
         link.textContent = "로그인 화면으로 이동";
@@ -682,12 +799,14 @@
           adminTabs.hidden = false;
           showProductsTab();
           productAdmin.hidden = false;
+          salesAdmin.hidden = true;
           await loadProducts();
         } else {
           status.textContent = "권한이 없습니다";
           adminTabs.hidden = true;
           productAdmin.hidden = true;
           ordersAdmin.hidden = true;
+          salesAdmin.hidden = true;
           actions.append(button("주인 명찰 받기", async () => {
             try {
               await grantOwnerRole();
@@ -708,6 +827,7 @@
         adminTabs.hidden = true;
         productAdmin.hidden = true;
         ordersAdmin.hidden = true;
+        salesAdmin.hidden = true;
       }
     }
 
