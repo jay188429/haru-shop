@@ -40,6 +40,19 @@
     .product-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
     .product-controls input, .product-controls select { padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
     .product-count { margin: 14px 0 0; color: var(--sub); }
+    .admin-tabs { display: flex; gap: 8px; margin: 24px 0 0; }
+    .admin-tabs .active { outline: 3px solid rgba(138,90,43,.25); }
+    .orders-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
+    .orders-list { display: grid; gap: 8px; }
+    .order-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; text-align: left; font: inherit; cursor: pointer; }
+    .order-row:hover { border-color: var(--accent); }
+    .order-detail { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+    .order-detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+    .order-detail dt { color: var(--sub); }
+    .order-detail dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .order-error { color: #b42318; white-space: pre-wrap; min-height: 1.5em; }
+    .order-confirm { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+    .order-confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -53,6 +66,10 @@
       <div id="admin-account-info"></div>
       <div id="admin-actions" class="admin-actions"></div>
     </section>
+    <div id="admin-tabs" class="admin-tabs" hidden>
+      <button id="products-tab" class="btn active" type="button">상품</button>
+      <button id="orders-tab" class="btn ghost" type="button">주문</button>
+    </div>
     <section id="product-admin" class="admin-card" hidden>
       <div class="product-admin-head">
         <h2>상품 관리</h2>
@@ -96,12 +113,31 @@
         <div id="recent-activity-list"></div>
       </section>
     </section>
+    <section id="orders-admin" class="admin-card" hidden>
+      <h2>주문</h2>
+      <div class="orders-controls">
+        <label>상태
+          <select id="order-status-filter">
+            <option value="">전체</option>
+            <option value="paid">paid</option>
+            <option value="preparing">preparing</option>
+            <option value="shipped">shipped</option>
+            <option value="delivered">delivered</option>
+            <option value="canceled">canceled</option>
+          </select>
+        </label>
+      </div>
+      <p id="orders-error" class="order-error" aria-live="polite"></p>
+      <div id="orders-list" class="orders-list"></div>
+      <button id="orders-more" class="btn ghost" type="button" hidden>더 보기</button>
+      <div id="order-detail" class="order-detail" hidden></div>
+    </section>
   </main>
 
   <script type="module">
     import { getIdToken } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
-    import { addDoc, collection, deleteField, doc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+    import { addDoc, collection, deleteField, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, startAfter, updateDoc, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
     import { getDownloadURL, getStorage, ref, uploadBytesResumable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
     import { app, auth, authReady } from "./assets/auth.js";
 
@@ -122,6 +158,15 @@
     const productActionMessage = document.querySelector("#product-action-message");
     const recentActivityError = document.querySelector("#recent-activity-error");
     const recentActivityList = document.querySelector("#recent-activity-list");
+    const adminTabs = document.querySelector("#admin-tabs");
+    const productsTab = document.querySelector("#products-tab");
+    const ordersTab = document.querySelector("#orders-tab");
+    const ordersAdmin = document.querySelector("#orders-admin");
+    const orderStatusFilter = document.querySelector("#order-status-filter");
+    const ordersError = document.querySelector("#orders-error");
+    const ordersList = document.querySelector("#orders-list");
+    const ordersMore = document.querySelector("#orders-more");
+    const orderDetail = document.querySelector("#order-detail");
     const functions = getFunctions(app, "us-central1");
     const db = getFirestore(app);
     const storage = getStorage(app);
@@ -137,6 +182,11 @@
       summary: "설명",
       imagePath: "사진"
     };
+    const orderPageSize = 20;
+    let orderLastDoc = null;
+    let orderHasMore = false;
+    let orderLoading = false;
+    let selectedOrder = null;
 
     const button = (label, handler) => {
       const item = document.createElement("button");
@@ -268,6 +318,151 @@
         recentActivityError.textContent = errorText(error);
       }
     }
+
+    function orderTime(value) {
+      return value?.toDate?.().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) || "시간 없음";
+    }
+
+    function nextOrderStatus(statusValue) {
+      return { paid: ["preparing", "포장 시작"], preparing: ["shipped", "배송 시작"], shipped: ["delivered", "배송 완료"] }[statusValue] || null;
+    }
+
+    function renderOrderDetail(order) {
+      selectedOrder = order;
+      orderDetail.replaceChildren();
+      orderDetail.hidden = false;
+      const title = document.createElement("h3");
+      title.textContent = `주문 ${order.id}`;
+      orderDetail.append(title);
+      const details = document.createElement("dl");
+      const fields = [
+        ["주문 번호", order.id],
+        ["산 것", JSON.stringify(order.items || [], null, 2)],
+        ["금액", order.totalPrice ?? ""],
+        ["상태", order.status || ""],
+        ["받은 시각", order.receivedAt ? orderTime(order.receivedAt) : ""],
+        ["처리 표시", order.processStatus || ""],
+        ["메일 표시", order.mailStatus || ""],
+        ["상태를 바꾼 시각", order.statusUpdatedAt ? orderTime(order.statusUpdatedAt) : ""]
+      ];
+      if (order.processError) fields.push(["처리 오류", order.processError]);
+      fields.forEach(([label, value]) => {
+        if (label === "메일 표시" && !order.mailStatus) return;
+        if (label === "상태를 바꾼 시각" && !order.statusUpdatedAt) return;
+        const term = document.createElement("dt");
+        term.textContent = label;
+        const description = document.createElement("dd");
+        description.textContent = value == null ? "" : String(value);
+        details.append(term, description);
+      });
+      orderDetail.append(details);
+
+      const next = nextOrderStatus(order.status);
+      if (next) {
+        const changeButton = button(next[1], () => {
+          const confirmBox = document.createElement("div");
+          confirmBox.className = "order-confirm";
+          const message = document.createElement("p");
+          message.textContent = `주문 ${order.id}를 ${next[0]}로 바꿉니다`;
+          const confirmActions = document.createElement("div");
+          confirmActions.className = "order-confirm-actions";
+          const cancelButton = button("그만두기", () => confirmBox.remove());
+          const confirmButton = button("바꾸기", async () => {
+            confirmButton.disabled = true;
+            cancelButton.disabled = true;
+            try {
+              await updateDoc(doc(db, "orders", order.id), {
+                status: next[0],
+                statusUpdatedAt: serverTimestamp()
+              });
+              const refreshed = await getDoc(doc(db, "orders", order.id));
+              renderOrderDetail({ id: refreshed.id, ...refreshed.data() });
+              await loadOrders(true);
+            } catch (error) {
+              console.error(error);
+              ordersError.textContent = "주문 상태를 바꾸지 못했습니다.";
+              confirmButton.disabled = false;
+              cancelButton.disabled = false;
+            }
+          });
+          confirmActions.append(confirmButton, cancelButton);
+          confirmBox.append(message, confirmActions);
+          orderDetail.append(confirmBox);
+        });
+        orderDetail.append(changeButton);
+      }
+    }
+
+    function renderOrderRow(order) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "order-row";
+      const id = document.createElement("span");
+      id.textContent = order.id;
+      const amount = document.createElement("span");
+      amount.textContent = `${order.totalPrice ?? ""}원`;
+      const statusValue = document.createElement("span");
+      statusValue.textContent = order.status || "";
+      const created = document.createElement("span");
+      created.textContent = orderTime(order.createdAt);
+      row.append(id, amount, statusValue, created);
+      row.addEventListener("click", () => renderOrderDetail(order));
+      ordersList.append(row);
+    }
+
+    async function loadOrders(reset = false) {
+      if (orderLoading) return;
+      orderLoading = true;
+      ordersError.textContent = "";
+      if (reset) {
+        orderLastDoc = null;
+        orderHasMore = false;
+        ordersList.replaceChildren();
+        orderDetail.replaceChildren();
+        orderDetail.hidden = true;
+      }
+      try {
+        const constraints = [];
+        if (orderStatusFilter.value) constraints.push(where("status", "==", orderStatusFilter.value));
+        constraints.push(orderBy("createdAt", "desc"), limit(orderPageSize));
+        if (orderLastDoc) constraints.splice(constraints.length - 1, 0, startAfter(orderLastDoc));
+        const snapshot = await getDocs(query(collection(db, "orders"), ...constraints));
+        snapshot.docs.map(item => ({ id: item.id, ...item.data() })).forEach(renderOrderRow);
+        orderLastDoc = snapshot.docs.at(-1) || orderLastDoc;
+        orderHasMore = snapshot.size === orderPageSize;
+        ordersMore.hidden = !orderHasMore;
+      } catch (error) {
+        console.error(error);
+        ordersError.textContent = "주문을 불러오지 못했습니다.";
+        ordersMore.hidden = true;
+      } finally {
+        orderLoading = false;
+      }
+    }
+
+    function showProductsTab() {
+      productsTab.classList.add("active");
+      productsTab.classList.remove("ghost");
+      ordersTab.classList.remove("active");
+      ordersTab.classList.add("ghost");
+      productAdmin.hidden = false;
+      ordersAdmin.hidden = true;
+    }
+
+    function showOrdersTab() {
+      productsTab.classList.remove("active");
+      productsTab.classList.add("ghost");
+      ordersTab.classList.add("active");
+      ordersTab.classList.remove("ghost");
+      productAdmin.hidden = true;
+      ordersAdmin.hidden = false;
+      loadOrders(true);
+    }
+
+    productsTab.addEventListener("click", showProductsTab);
+    ordersTab.addEventListener("click", showOrdersTab);
+    orderStatusFilter.addEventListener("change", () => loadOrders(true));
+    ordersMore.addEventListener("click", () => loadOrders(false));
 
     function renderProductRow(product) {
       const row = document.createElement("tr");
@@ -460,6 +655,9 @@
       if (!user) {
         status.textContent = "로그인이 필요합니다";
         accountInfo.replaceChildren();
+        adminTabs.hidden = true;
+        productAdmin.hidden = true;
+        ordersAdmin.hidden = true;
         const link = document.createElement("a");
         link.href = "/login.html";
         link.textContent = "로그인 화면으로 이동";
@@ -481,11 +679,15 @@
         accountInfo.append(emailLine, issuedAtLine);
         if (role === "staff" || role === "admin") {
           status.textContent = `관리자: ${role}`;
+          adminTabs.hidden = false;
+          showProductsTab();
           productAdmin.hidden = false;
           await loadProducts();
         } else {
           status.textContent = "권한이 없습니다";
+          adminTabs.hidden = true;
           productAdmin.hidden = true;
+          ordersAdmin.hidden = true;
           actions.append(button("주인 명찰 받기", async () => {
             try {
               await grantOwnerRole();
@@ -503,7 +705,9 @@
         }));
       } catch (error) {
         status.textContent = error.message;
+        adminTabs.hidden = true;
         productAdmin.hidden = true;
+        ordersAdmin.hidden = true;
       }
     }
 
