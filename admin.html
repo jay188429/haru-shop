@@ -144,6 +144,7 @@
       <p id="sales-last-counted"></p>
       <p id="sales-error" class="sales-error" aria-live="polite"></p>
       <div class="sales-chart-wrap"><canvas id="sales-chart"></canvas></div>
+      <p id="sales-seven-day-total"></p>
       <table class="sales-table">
         <thead><tr><th>날짜</th><th>건수</th><th>매출</th><th>센 시각</th></tr></thead>
         <tbody id="sales-table-body"></tbody>
@@ -191,6 +192,7 @@
     const salesLastCounted = document.querySelector("#sales-last-counted");
     const salesError = document.querySelector("#sales-error");
     const salesChartCanvas = document.querySelector("#sales-chart");
+    const salesSevenDayTotal = document.querySelector("#sales-seven-day-total");
     const salesTableBody = document.querySelector("#sales-table-body");
     const functions = getFunctions(app, "us-central1");
     const db = getFirestore(app);
@@ -558,6 +560,13 @@
           });
           salesTableBody.append(tr);
         });
+        const countedRows = rows.filter(row => row.exists);
+        const salesTotal = countedRows.reduce((sum, row) => sum + Number(row.data.totalSales || 0), 0);
+        const orderTotal = countedRows.reduce((sum, row) => sum + Number(row.data.orderCount || 0), 0);
+        const missingDays = rows.length - countedRows.length;
+        salesSevenDayTotal.textContent = missingDays === 0
+          ? `최근 7일 합계 ${salesTotal}원 - 주문 ${orderTotal}건 (집계 없는 날 없음)`
+          : `최근 7일 합계 ${salesTotal}원 - 주문 ${orderTotal}건 (집계 없는 날 ${missingDays}일은 빼고 더함)`;
 
         if (salesChart) salesChart.destroy();
         salesChart = new window.Chart(salesChartCanvas, {
