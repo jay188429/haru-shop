@@ -75,7 +75,7 @@ function paintChrome() {
   if (badge) badge.textContent = Cart.count();
 
   const foot = document.querySelector("footer.site .wrap");
-  if (foot) foot.textContent = SHOP.name + " · " + SHOP.tagline;
+  if (foot) foot.innerHTML = SHOP.name + " · " + SHOP.tagline + ' · <a href="privacy.html">개인정보 처리방침</a>';
 }
 
 /* --- 상품 목록 --- */
