@@ -39,6 +39,8 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <p id="order-status-notice" aria-live="polite" hidden>주문 상태가 바뀌었습니다</p>
   <p>로그인한 이메일</p>
   <p id="user-email"></p>
+  <button class="btn" id="delete-account" type="button">탈퇴하기</button>
+  <p id="delete-account-error" aria-live="polite" hidden></p>
   <button class="btn" id="mypage-logout" type="button">로그아웃</button>
   <section id="my-orders">
     <h3>내 주문</h3>
@@ -51,8 +53,9 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 <footer class="site"><div class="wrap"><a href="privacy.html">개인정보 처리방침</a></div></footer>
 
 <script type="module">
-  import { sendEmailVerification, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+  import { deleteUser, sendEmailVerification, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
   import { collection, doc, getDocs, getFirestore, onSnapshot, query, updateDoc, where } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js";
   import { app, auth, authReady } from "./assets/auth.js";
 
   const db = getFirestore(app);
@@ -64,6 +67,9 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   const ordersEmpty = document.querySelector("#orders-empty");
   const listenerNotice = document.querySelector("#orders-listener-notice");
   const ordersRecheck = document.querySelector("#orders-recheck");
+  const deleteAccount = document.querySelector("#delete-account");
+  const deleteAccountError = document.querySelector("#delete-account-error");
+  const cleanupDeletedUser = httpsCallable(getFunctions(app, "us-central1"), "cleanupDeletedUser");
   let stopOrders = null;
   let noticeTimer = null;
   const knownStatuses = new Map();
@@ -251,6 +257,21 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   document.querySelector("#mypage-logout").addEventListener("click", async () => {
     await signOut(auth);
     location.href = "index.html";
+  });
+
+  deleteAccount.addEventListener("click", async () => {
+    if (!confirm("계정을 탈퇴하면 되돌릴 수 없습니다. 탈퇴하시겠습니까?")) return;
+    deleteAccount.disabled = true;
+    deleteAccountError.hidden = true;
+    try {
+      await cleanupDeletedUser({});
+      await deleteUser(auth.currentUser);
+      location.href = "index.html";
+    } catch (error) {
+      deleteAccountError.textContent = error.message;
+      deleteAccountError.hidden = false;
+      deleteAccount.disabled = false;
+    }
   });
 </script>
 </body>

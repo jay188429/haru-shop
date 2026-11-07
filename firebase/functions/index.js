@@ -139,6 +139,21 @@ exports.calcOrderTotal = onCall({region: "us-central1"}, async (request) => {
   return {totalPrice: Number(productSnapshot.get("price")) * quantity};
 });
 
+exports.cleanupDeletedUser = onCall({region: "us-central1"}, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "로그인이 필요합니다.");
+  }
+
+  const uid = request.auth.uid;
+  const db = getFirestore();
+  const batch = db.batch();
+  batch.delete(db.collection("users").doc(uid));
+  batch.delete(db.collection("pushTokens").doc(uid));
+  await batch.commit();
+
+  return {ok: true};
+});
+
 Object.assign(exports, require("./automation"));
 Object.assign(exports, require("./admin"));
 
